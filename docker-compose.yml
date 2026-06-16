@@ -1,0 +1,136 @@
+services:
+  postgres:
+    image: postgres:${POSTGRES_IMAGE_TAG}
+    container_name: ${COMPOSE_PROJECT_NAME}-pg
+    restart: unless-stopped
+    ports:
+      - "${PG_PORT_HOST}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${TZ}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    image: ${API_IMAGE}
+    container_name: ${COMPOSE_PROJECT_NAME}-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT_HOST}:${API_PORT_CONTAINER}"
+    environment:
+      TZ: ${TZ}
+      NODE_ENV: ${NODE_ENV}
+      PORT: "${API_PORT_CONTAINER}"
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      DATABASE_URL: ${DATABASE_URL}
+      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
+      MUSIC_ON_HOLD_FOLDER_PATH: ${MUSIC_ON_HOLD_FOLDER_PATH}
+      AUDIO_URA_FOLDER_PATH: ${AUDIO_URA_FOLDER_PATH}
+      VITE_MAX_FILE_SIZE_UPLOAD_MOH: "${VITE_MAX_FILE_SIZE_UPLOAD_MOH}"
+      MAX_CAPTURE_GROUPS: "${MAX_CAPTURE_GROUPS}"
+      VITE_EF_FILES_FOLDER_PATH: ${VITE_EF_FILES_FOLDER_PATH}
+      VITE_ASTERISK_HOST: ${VITE_ASTERISK_HOST}
+      VITE_ASTERISK_ARI_PORT: "${VITE_ASTERISK_ARI_PORT}"
+      VITE_ASTERISK_AMI_PORT: "${VITE_ASTERISK_AMI_PORT}"
+      VITE_ASTERISK_USERNAME: ${VITE_ASTERISK_USERNAME}
+      VITE_ASTERISK_PASSWORD: ${VITE_ASTERISK_PASSWORD}
+      VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS: "${VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS}"
+      VITE_APP_NAME_ARI_ASTERISK: ${VITE_APP_NAME_ARI_ASTERISK}
+      PRISMA_LOGS_OFF: "${PRISMA_LOGS_OFF}"
+      PG_POOL_MAX: "${PG_POOL_MAX}"
+      PG_POOL_MIN: "${PG_POOL_MIN}"
+      DATA_SECRET_CRYPTOGRAPHY_KEY: ${DATA_SECRET_CRYPTOGRAPHY_KEY}
+      AI_AUDIO_GENERATION_ENDPOINT: ${AI_AUDIO_GENERATION_ENDPOINT}
+      ACTIVATE_DISCADOR_MAILING: "${ACTIVATE_DISCADOR_MAILING}"
+      VITE_EF_CALL_RECORD_FOLDER_PATH: ${VITE_EF_CALL_RECORD_FOLDER_PATH}
+      EF_AMI_DIALPLAN_EXTENSION_CONTEXT: ${EF_AMI_DIALPLAN_EXTENSION_CONTEXT}
+      EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK: ${EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
+      RUN_MIGRATIONS: "${RUN_MIGRATIONS}"
+      RUN_SEED: "${RUN_SEED}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - ./data/audios/moh:/data/audios/moh
+      - ./data/audios/ura:/data/audios/ura
+      - ./data/config:/data/config
+      - ./data/recordings:/data/recordings
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: ${WEB_IMAGE}
+    container_name: ${COMPOSE_PROJECT_NAME}-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT_HOST}:${WEB_PORT_CONTAINER}"
+    environment:
+      PORT: "${WEB_PORT_CONTAINER}"
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_API_DELAY: "${VITE_API_DELAY}"
+      VITE_ENABLE_API_DELAY: "${VITE_ENABLE_API_DELAY}"
+      VITE_FORMAT_FILES_UPLOAD_MOH: ${VITE_FORMAT_FILES_UPLOAD_MOH}
+      VITE_MAX_FILES_UPLOAD_MOH: "${VITE_MAX_FILES_UPLOAD_MOH}"
+      VITE_MAX_FILE_SIZE_UPLOAD_MOH: "${VITE_MAX_FILE_SIZE_UPLOAD_MOH}"
+      VITE_MAX_FILE_SIZE_UPLOAD_IVR_AUDIO: "${VITE_MAX_FILE_SIZE_UPLOAD_IVR_AUDIO}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      api:
+        condition: service_started
+
+  asterisk:
+    image: ${ASTERISK_IMAGE}
+    container_name: ${COMPOSE_PROJECT_NAME}-asterisk
+    restart: unless-stopped
+    ports:
+      - "${ASTERISK_SIP_PORT_HOST}:5060/udp"
+      - "${ASTERISK_AMI_PORT_HOST}:5038"
+      - "${ASTERISK_ARI_PORT_HOST}:8088"
+      - "${ASTERISK_ARI_HTTPS_PORT_HOST}:8089"
+    environment:
+      DB_HOST: ${ASTERISK_DB_HOST}
+      DB_PORT: "${ASTERISK_DB_PORT}"
+      DB_NAME: ${ASTERISK_DB_NAME}
+      DB_USER: ${ASTERISK_DB_USER}
+      DB_PASS: ${ASTERISK_DB_PASS}
+    healthcheck:
+      test: ["CMD-SHELL", "asterisk -rx \"core ping\" 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - asterisk-config:/etc/asterisk
+      - ./data/recordings:/var/spool/asterisk/monitor
+      - asterisk-logs:/var/log/asterisk
+      - ./data/audios/ura:/var/lib/asterisk/sounds/pt_BR/ura:ro
+      - ./data/audios/moh:/var/lib/asterisk/sounds/pt_BR/custom:ro
+    cap_add:
+      - SYS_NICE
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  asterisk-config:
+  asterisk-logs:
