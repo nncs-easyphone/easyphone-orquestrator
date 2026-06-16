@@ -106,6 +106,7 @@ services:
       - "${ASTERISK_AMI_PORT_HOST}:5038"
       - "${ASTERISK_ARI_PORT_HOST}:8088"
       - "${ASTERISK_ARI_HTTPS_PORT_HOST}:8089"
+      - "10000-20000:10000-20000/udp"
     environment:
       DB_HOST: ${ASTERISK_DB_HOST}
       DB_PORT: "${ASTERISK_DB_PORT}"
