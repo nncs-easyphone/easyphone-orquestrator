@@ -35,15 +35,11 @@ echo
 PORTS_TCP=(22 7000 7001 7002 5038 8088 8089)
 PORTS_UDP=(5060)
 
-# ── 1. Limpeza ────────────────────────────────────────────────────────
-info "Limpando regras existentes em todas as tabelas…"
-iptables -F
-iptables -X
-iptables -t nat -F 2>/dev/null || true
-iptables -t nat -X 2>/dev/null || true
-iptables -t mangle -F 2>/dev/null || true
-iptables -t mangle -X 2>/dev/null || true
-ok "Regras antigas removidas."
+# ── 1. Limpeza (apenas chains INPUT/OUTPUT, preserva Docker) ─────────
+info "Limpando regras das chains INPUT e OUTPUT…"
+iptables -F INPUT
+iptables -F OUTPUT
+ok "Regras antigas de INPUT/OUTPUT removidas (Docker intacto)."
 
 # ── 2. Políticas padrão ──────────────────────────────────────────────
 info "Definindo políticas padrão…"
@@ -79,20 +75,11 @@ for port in "${PORTS_UDP[@]}"; do
   echo -e "  ${GREEN}✓${NC} UDP/$port"
 done
 
-# ── 8. Redes do Docker ───────────────────────────────────────────────
-# bridge padrão (docker0)
-if ip link show docker0 &>/dev/null; then
-  iptables -A INPUT   -i docker0 -j ACCEPT
-  iptables -A FORWARD -i docker0 -j ACCEPT
-  ok "Tráfego da bridge docker0 liberado."
-fi
-
-# docker_gwbridge (usado em Swarm/overlay)
-if ip link show docker_gwbridge &>/dev/null; then
-  iptables -A INPUT   -i docker_gwbridge -j ACCEPT 2>/dev/null || true
-  iptables -A FORWARD -i docker_gwbridge -j ACCEPT 2>/dev/null || true
-  ok "Tráfego da bridge docker_gwbridge liberado."
-fi
+# ── 8. NOTA sobre Docker ──────────────────────────────────────────────
+# O Docker gerencia automaticamente suas próprias regras de FORWARD,
+# NAT e bridges (docker0, docker_gwbridge, etc.).
+# Não inserimos regras manuais para essas interfaces para evitar
+# conflitos com o isolamento de redes do Docker.
 
 # ── 9. Persistência ──────────────────────────────────────────────────
 echo
@@ -112,8 +99,7 @@ fi
 
 # ── 10. Aviso sobre Docker ───────────────────────────────────────────
 if pidof dockerd &>/dev/null; then
-  warn "Docker está rodando. Se os contêineres perderem conectividade,"
-  warn "reinicie o Docker:  sudo systemctl restart docker"
+  ok "Docker detectado — chains e regras do Docker foram preservadas."
 fi
 
 echo
