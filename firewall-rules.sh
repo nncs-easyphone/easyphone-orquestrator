@@ -3,8 +3,9 @@
 # EasyFone Orchestrator — Regras de Firewall (iptables)
 # Uso: sudo bash firewall-rules.sh
 #
-# Define regras de entrada para as portas do projeto e
-# mantém política restritiva (DROP) nas chains INPUT e FORWARD.
+# Define regras de entrada para as portas do projeto.
+# NOTA: FORWARD fica ACCEPT para não quebrar o roteamento de redes do Docker.
+# IPv6 deve estar desabilitado no kernel; este script não configura ip6tables.
 
 set -euo pipefail
 
@@ -35,27 +36,33 @@ echo
 PORTS_TCP=(22 7000 7001 7002 5038 8088 8089)
 PORTS_UDP=(5060)
 
-# ── 1. Limpeza (apenas chains INPUT/OUTPUT, preserva Docker) ─────────
+# ── 1. Limpeza (apenas INPUT/OUTPUT, preserva chains do Docker) ────
 info "Limpando regras das chains INPUT e OUTPUT…"
 iptables -F INPUT
 iptables -F OUTPUT
 ok "Regras antigas de INPUT/OUTPUT removidas (Docker intacto)."
 
-# ── 2. Políticas padrão ──────────────────────────────────────────────
-info "Definindo políticas padrão…"
-iptables -P INPUT   DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT  ACCEPT
-ok "Políticas definidas: INPUT=DROP  FORWARD=DROP  OUTPUT=ACCEPT"
-
-# ── 3. Loopback ──────────────────────────────────────────────────────
-iptables -A INPUT -i lo -j ACCEPT
-ok "Loopback liberado."
-
-# ── 4. Conexões estabelecidas / related ───────────────────────────────
+# ── 2. Conexões estabelecidas / related ──────────────────────────────
+# PRIMEIRO liberamos conexões ativas (ex: SSH atual) ANTES de mudar
+# a política padrão para DROP, evitando queda da sessão.
 iptables -A INPUT   -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 ok "Conexões estabelecidas/related aceitas."
+
+# ── 3. Políticas padrão ──────────────────────────────────────────────
+# INPUT → DROP  (bloqueia tudo que não foi explicitamente liberado)
+# FORWARD → ACCEPT  (obrigatório para o Docker rotear tráfego entre
+#                     containers e para fora; o Docker gerencia suas
+#                     próprias restrições nas chains DOCKER / DOCKER-USER)
+info "Definindo políticas padrão…"
+iptables -P INPUT   DROP
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT  ACCEPT
+ok "Políticas definidas: INPUT=DROP  FORWARD=ACCEPT  OUTPUT=ACCEPT"
+
+# ── 4. Loopback ──────────────────────────────────────────────────────
+iptables -A INPUT -i lo -j ACCEPT
+ok "Loopback liberado."
 
 # ── 5. ICMP (ping) ───────────────────────────────────────────────────
 iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
@@ -78,8 +85,11 @@ done
 # ── 8. NOTA sobre Docker ──────────────────────────────────────────────
 # O Docker gerencia automaticamente suas próprias regras de FORWARD,
 # NAT e bridges (docker0, docker_gwbridge, etc.).
-# Não inserimos regras manuais para essas interfaces para evitar
-# conflitos com o isolamento de redes do Docker.
+# Não inserimos regras manuais nessas chains para evitar conflitos.
+#
+# ⚠ FORWARD policy = ACCEPT (indispensável para o Docker).
+# Se precisar restringir tráfego entre containers, use a chain DOCKER-USER:
+#   iptables -A DOCKER-USER -i docker0 -o docker0 -j DROP
 
 # ── 9. Persistência ──────────────────────────────────────────────────
 echo

@@ -48,6 +48,11 @@ fi
 
 INSTALLED=()
 
+# Atualiza índice de pacotes uma única vez no início
+info "Atualizando índice de pacotes…"
+apt-get update -qq
+ok "Índice de pacotes atualizado."
+
 # ─────────────────────────────────────────────────────────────────────
 #  1. DOCKER
 # ─────────────────────────────────────────────────────────────────────
@@ -68,13 +73,14 @@ if ! command -v docker &>/dev/null || [[ " ${INSTALLED[*]} " =~ "docker (reinsta
   if ask_yes "Instalar Docker?"; then
     info "Verificando curl…"
     if ! command -v curl &>/dev/null; then
-      apt-get update -qq && apt-get install -y -qq curl
+      apt-get install -y -qq curl
       ok "curl instalado."
     fi
 
     info "Baixando e executando script oficial get.docker.com…"
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
     sh /tmp/get-docker.sh
+    rm -f /tmp/get-docker.sh
     ok "Docker instalado com sucesso."
     INSTALLED+=("docker")
 
@@ -88,6 +94,14 @@ if ! command -v docker &>/dev/null || [[ " ${INSTALLED[*]} " =~ "docker (reinsta
     systemctl enable docker &>/dev/null || true
     systemctl start docker  &>/dev/null || true
     ok "docker.service habilitado e iniciado."
+
+    # Valida que o daemon está rodando
+    if docker info &>/dev/null; then
+      ok "Docker daemon operacional."
+    else
+      warn "Docker instalado, mas o daemon pode não ter iniciado completamente."
+      warn "Execute 'docker info' manualmente para verificar."
+    fi
   else
     echo "  → Pulando instalação do Docker."
   fi
@@ -140,7 +154,6 @@ IPTABLES_INSTALLED=false
 if ! command -v iptables &>/dev/null; then
   warn "iptables não encontrado."
   if ask_yes "Instalar iptables?"; then
-    apt-get update -qq
     apt-get install -y -qq iptables
     ok "iptables instalado."
 
@@ -207,7 +220,6 @@ if docker compose version &>/dev/null; then
 else
   warn "Plugin 'docker compose' não encontrado."
   if ask_yes "Instalar docker-compose-plugin?"; then
-    apt-get update -qq
     apt-get install -y -qq docker-compose-plugin
     ok "docker-compose-plugin instalado."
     INSTALLED+=("docker-compose-plugin")
