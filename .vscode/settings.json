@@ -8,6 +8,7 @@
     "nncs",
     "pgdata",
     "postgres",
-    "postgresql"
+    "postgresql",
+    "waitfullybooted"
   ]
 }
