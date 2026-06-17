@@ -78,7 +78,7 @@ services:
       context: ../easyphone-api
       dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-seed
-    command: sh -c "pnpm prisma db seed"
+    command: sh -c "npx prisma db seed"
     env_file: .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
