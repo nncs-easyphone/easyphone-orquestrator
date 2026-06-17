@@ -19,6 +19,80 @@ services:
       retries: 10
       start_period: 10s
 
+  migrations:
+    image: ${API_IMAGE}
+    build:
+      context: ../easyphone-api
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME}-migrations
+    command: sh -c "pnpm prisma migrate deploy"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  asterisk:
+    image: ${ASTERISK_IMAGE}
+    build:
+      context: ../easyphone-asterisk
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME}-asterisk
+    restart: unless-stopped
+    ports:
+      - "${ASTERISK_SIP_PORT_HOST}:5060/udp"
+      - "${ASTERISK_AMI_PORT_HOST}:5038"
+      - "${ASTERISK_ARI_PORT_HOST}:8088"
+      - "${ASTERISK_ARI_HTTPS_PORT_HOST}:8089"
+      - "10000-20000:10000-20000/udp"
+    environment:
+      DB_HOST: ${ASTERISK_DB_HOST}
+      DB_PORT: "${ASTERISK_DB_PORT}"
+      DB_NAME: ${ASTERISK_DB_NAME}
+      DB_USER: ${ASTERISK_DB_USER}
+      DB_PASS: ${ASTERISK_DB_PASS}
+    healthcheck:
+      test: ["CMD-SHELL", "asterisk -rx \"core ping\" 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - asterisk_config:/etc/asterisk
+      - asterisk_lib:/var/lib/asterisk
+      - asterisk_log:/var/log/asterisk
+      - asterisk_monitor:/var/spool/asterisk/monitor
+    cap_add:
+      - SYS_NICE
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+
+  seed:
+    image: ${API_IMAGE}
+    build:
+      context: ../easyphone-api
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME}-seed
+    command: sh -c "pnpm prisma db seed"
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
+    volumes:
+      - asterisk_config:/etc/asterisk
+      - asterisk_lib:/var/lib/asterisk
+      - asterisk_log:/var/log/asterisk
+      - asterisk_monitor:/var/spool/asterisk/monitor
+    depends_on:
+      asterisk:
+        condition: service_started
+      migrations:
+        condition: service_completed_successfully
+
   api:
     image: ${API_IMAGE}
     build:
@@ -58,8 +132,6 @@ services:
       EF_AMI_DIALPLAN_EXTENSION_CONTEXT: ${EF_AMI_DIALPLAN_EXTENSION_CONTEXT}
       EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK: ${EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK}
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
-      RUN_MIGRATIONS: "${RUN_MIGRATIONS}"
-      RUN_SEED: "${RUN_SEED}"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/ || exit 1"]
       interval: 10s
@@ -67,13 +139,19 @@ services:
       retries: 5
       start_period: 30s
     volumes:
-      - ./data/audios/moh:/data/audios/moh
-      - ./data/audios/ura:/data/audios/ura
-      - ./data/config:/data/config
-      - ./data/recordings:/data/recordings
+      - asterisk_config:/etc/asterisk
+      - asterisk_lib:/var/lib/asterisk
+      - asterisk_log:/var/log/asterisk
+      - asterisk_monitor:/var/spool/asterisk/monitor
     depends_on:
       postgres:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      asterisk:
+        condition: service_started
+      seed:
+        condition: service_completed_successfully
 
   web:
     image: ${WEB_IMAGE}
@@ -103,44 +181,9 @@ services:
       api:
         condition: service_started
 
-  asterisk:
-    image: ${ASTERISK_IMAGE}
-    build:
-      context: ../easyphone-asterisk
-      dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}-asterisk
-    restart: unless-stopped
-    ports:
-      - "${ASTERISK_SIP_PORT_HOST}:5060/udp"
-      - "${ASTERISK_AMI_PORT_HOST}:5038"
-      - "${ASTERISK_ARI_PORT_HOST}:8088"
-      - "${ASTERISK_ARI_HTTPS_PORT_HOST}:8089"
-      - "10000-20000:10000-20000/udp"
-    environment:
-      DB_HOST: ${ASTERISK_DB_HOST}
-      DB_PORT: "${ASTERISK_DB_PORT}"
-      DB_NAME: ${ASTERISK_DB_NAME}
-      DB_USER: ${ASTERISK_DB_USER}
-      DB_PASS: ${ASTERISK_DB_PASS}
-    healthcheck:
-      test: ["CMD-SHELL", "asterisk -rx \"core ping\" 2>/dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    volumes:
-      - asterisk-config:/etc/asterisk
-      - ./data/recordings:/var/spool/asterisk/monitor
-      - asterisk-logs:/var/log/asterisk
-      - ./data/audios/ura:/var/lib/asterisk/sounds/pt_BR/ura:ro
-      - ./data/audios/moh:/var/lib/asterisk/sounds/pt_BR/custom:ro
-    cap_add:
-      - SYS_NICE
-    depends_on:
-      postgres:
-        condition: service_healthy
-
 volumes:
   pgdata:
-  asterisk-config:
-  asterisk-logs:
+  asterisk_config:
+  asterisk_lib:
+  asterisk_log:
+  asterisk_monitor:
