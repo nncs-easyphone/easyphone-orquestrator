@@ -40,16 +40,16 @@ services:
       dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-asterisk
     restart: unless-stopped
-    ports:
-      - "5060:5060"
-      - "5061:5061"
-      - "5038:5038"
-      - "8088:8088"
-      - "8089:8089"
-      - "10000-20000:10000-20000/udp"
+    # Host networking: SIP/RTP nativo (sem NAT/proxy do Docker). Evita o problema
+    # de publicar ~10 mil portas UDP de RTP (que estourava a RAM no VPS) e o áudio
+    # em sentido único do NAT. NÃO usar 'ports:' com host networking — o Asterisk
+    # já escuta nas portas reais do host (5060/5061/5038/8088/8089 + RTP 10000-20000).
+    network_mode: host
     environment:
-      DB_HOST: ${ASTERISK_DB_HOST}
-      DB_PORT: "${ASTERISK_DB_PORT}"
+      # Em host networking o nome de serviço 'postgres' (bridge) não resolve;
+      # o Postgres é publicado em ${PG_PORT_HOST} no host.
+      DB_HOST: 127.0.0.1
+      DB_PORT: "${PG_PORT_HOST}"
       DB_NAME: ${ASTERISK_DB_NAME}
       DB_USER: ${ASTERISK_DB_USER}
       DB_PASS: ${ASTERISK_DB_PASS}
@@ -83,6 +83,9 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
+    # Asterisk está em host networking; alcança-se AMI/ARI via gateway do host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - asterisk_config:/etc/asterisk
       - asterisk_lib:/var/lib/asterisk
@@ -103,6 +106,10 @@ services:
     restart: unless-stopped
     ports:
       - "${API_PORT_HOST}:${API_PORT_CONTAINER}"
+    # Asterisk está em host networking; alcança-se AMI/ARI via gateway do host
+    # (VITE_ASTERISK_HOST=host.docker.internal no .env).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       TZ: ${TZ}
       NODE_ENV: ${NODE_ENV}

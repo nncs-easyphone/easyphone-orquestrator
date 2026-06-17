@@ -33,8 +33,17 @@ cat << "EOF"
 EOF
 echo
 
-PORTS_TCP=(22 7000 7001 7002 5038 8088 8089)
+# NOTA: o Asterisk roda em host networking, então seu tráfego (SIP/RTP/AMI/ARI)
+# chega na chain INPUT (política DROP) — por isso precisa ser liberado aqui.
+# ⚠ Segurança: AMI (5038) e ARI (8088) dão controle total do PBX. A API os acessa
+# pelo gateway interno do Docker (host.docker.internal), NÃO pela internet. Em
+# produção, NÃO exponha 5038/8088 ao público — remova-os de PORTS_TCP e/ou
+# restrinja a origem à sub-rede do Docker (ex.: -s 172.16.0.0/12).
+PORTS_TCP=(22 7000 7001 7002 5038 8088 8089 5061)
 PORTS_UDP=(5060)
+
+# Faixa de RTP (mídia/áudio) — DEVE casar com rtp.conf (rtpstart/rtpend).
+RTP_UDP_RANGE="10000:20000"
 
 # ── 1. Limpeza (apenas INPUT/OUTPUT, preserva chains do Docker) ────
 info "Limpando regras das chains INPUT e OUTPUT…"
@@ -81,6 +90,11 @@ for port in "${PORTS_UDP[@]}"; do
   iptables -A INPUT -p udp --dport "$port" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} UDP/$port"
 done
+
+# ── 7b. Faixa de RTP (mídia) ──────────────────────────────────────────
+info "Liberando faixa de RTP (UDP ${RTP_UDP_RANGE})…"
+iptables -A INPUT -p udp --dport "$RTP_UDP_RANGE" -j ACCEPT
+echo -e "  ${GREEN}✓${NC} UDP/${RTP_UDP_RANGE} (RTP)"
 
 # ── 8. NOTA sobre Docker ──────────────────────────────────────────────
 # O Docker gerencia automaticamente suas próprias regras de FORWARD,
