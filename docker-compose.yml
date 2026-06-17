@@ -21,6 +21,9 @@ services:
 
   api:
     image: ${API_IMAGE}
+    build:
+      context: ../easyphone-api
+      dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-api
     restart: unless-stopped
     ports:
@@ -74,6 +77,9 @@ services:
 
   web:
     image: ${WEB_IMAGE}
+    build:
+      context: ../easyphone-web
+      dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-web
     restart: unless-stopped
     ports:
@@ -99,6 +105,9 @@ services:
 
   asterisk:
     image: ${ASTERISK_IMAGE}
+    build:
+      context: ../easyphone-asterisk
+      dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-asterisk
     restart: unless-stopped
     ports:
