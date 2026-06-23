@@ -138,6 +138,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      VITE_ASTERISK_HOST: host.docker.internal
     # Asterisk está em host networking; alcança-se AMI/ARI via gateway do host.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -174,7 +175,7 @@ services:
       NODE_ENV: ${NODE_ENV}
       PORT: "${API_PORT_CONTAINER}"
       JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGIN: ${CORS_ORIGIN}
+      CORS_ORIGIN: https://app.${DOMAIN}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?pgbouncer=true
       DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       MUSIC_ON_HOLD_FOLDER_PATH: ${MUSIC_ON_HOLD_FOLDER_PATH}
@@ -182,7 +183,7 @@ services:
       VITE_MAX_FILE_SIZE_UPLOAD_MOH: "${VITE_MAX_FILE_SIZE_UPLOAD_MOH}"
       MAX_CAPTURE_GROUPS: "${MAX_CAPTURE_GROUPS}"
       VITE_EF_FILES_FOLDER_PATH: ${VITE_EF_FILES_FOLDER_PATH}
-      VITE_ASTERISK_HOST: ${VITE_ASTERISK_HOST}
+      VITE_ASTERISK_HOST: host.docker.internal
       VITE_ASTERISK_ARI_PORT: "${VITE_ASTERISK_ARI_PORT}"
       VITE_ASTERISK_AMI_PORT: "${VITE_ASTERISK_AMI_PORT}"
       VITE_ASTERISK_USERNAME: ${VITE_ASTERISK_USERNAME}
@@ -241,7 +242,7 @@ services:
       - traefik-public
     environment:
       PORT: "3000"
-      VITE_API_URL: ${VITE_API_URL}
+      VITE_API_URL: https://api.${DOMAIN}
       VITE_API_DELAY: "${VITE_API_DELAY}"
       VITE_ENABLE_API_DELAY: "${VITE_ENABLE_API_DELAY}"
       VITE_FORMAT_FILES_UPLOAD_MOH: ${VITE_FORMAT_FILES_UPLOAD_MOH}
