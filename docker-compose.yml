@@ -19,6 +19,38 @@ services:
       retries: 10
       start_period: 10s
 
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: ${COMPOSE_PROJECT_NAME}-pgbouncer
+    restart: unless-stopped
+    ports:
+      - "${PGBOUNCER_PORT_HOST}:6432"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LISTEN_PORT: "6432"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "200"
+      DEFAULT_POOL_SIZE: "30"
+      MIN_POOL_SIZE: "20"
+      RESERVE_POOL_SIZE: "10"
+      MAX_USER_CONNECTIONS: "50"
+      SERVER_LOGIN_RETRY: "3"
+      QUERY_TIMEOUT: "300"
+      CLIENT_IDLE_TIMEOUT: "600"
+      PKT_BUF: "8192"
+      MAX_PREPARED_STATEMENTS: "100"
+      IGNORE_STARTUP_PARAMETERS: "extra_float_digits,application_name"
+      STATS_USERS: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: pg_isready -h localhost -p 6432 -U ${POSTGRES_USER}
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
   migrations:
     image: ${API_IMAGE}
     build:
@@ -27,8 +59,8 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME}-migrations
     command: sh -c "npx prisma migrate deploy"
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?pgbouncer=true
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,8 +113,8 @@ services:
     command: sh -c "npx prisma db seed"
     env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?pgbouncer=true
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     # Asterisk está em host networking; alcança-se AMI/ARI via gateway do host.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -92,6 +124,8 @@ services:
       - asterisk_log:/var/log/asterisk
       - asterisk_monitor:/var/spool/asterisk/monitor
     depends_on:
+      pgbouncer:
+        condition: service_started
       asterisk:
         condition: service_started
       migrations:
@@ -116,8 +150,8 @@ services:
       PORT: "${API_PORT_CONTAINER}"
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}
-      DATABASE_URL: ${DATABASE_URL}
-      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?pgbouncer=true
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       MUSIC_ON_HOLD_FOLDER_PATH: ${MUSIC_ON_HOLD_FOLDER_PATH}
       AUDIO_URA_FOLDER_PATH: ${AUDIO_URA_FOLDER_PATH}
       VITE_MAX_FILE_SIZE_UPLOAD_MOH: "${VITE_MAX_FILE_SIZE_UPLOAD_MOH}"
@@ -154,6 +188,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      pgbouncer:
+        condition: service_started
       migrations:
         condition: service_completed_successfully
       asterisk:

@@ -63,4 +63,5 @@ echo
 echo -e "  ${GREEN}→${NC} Web:        http://localhost:${WEB_PORT_HOST:-7000}"
 echo -e "  ${GREEN}→${NC} API:        http://localhost:${API_PORT_HOST:-7002}"
 echo -e "  ${GREEN}→${NC} Postgres:   localhost:${PG_PORT_HOST:-7001}"
+echo -e "  ${GREEN}→${NC} PgBouncer:  localhost:${PGBOUNCER_PORT_HOST:-7003}"
 echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  AMI 5038  |  ARI 8088"
