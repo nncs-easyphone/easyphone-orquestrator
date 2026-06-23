@@ -71,18 +71,19 @@ docker compose up -d
 
 A stack inclui:
 
-| Serviço | Porta | Descrição |
+| Serviço | Portas Externas | Descrição |
 |---|---|---|
-| **Web** | `7000` | Interface gráfica |
-| **API** | `7002` | Backend REST |
-| **Postgres** | `7001` | Banco de dados |
-| **PgBouncer** | `7003` | Pool de conexões |
-| **Asterisk** | SIP `5060/udp`, AMI `5038`, ARI `8088` | PBX |
+| **Traefik** | `80/443` (HTTP/HTTPS) | Proxy reverso com SSL automático (Let's Encrypt) |
+| **Web** | — | Interface gráfica em `https://app.exemplo.com` |
+| **API** | — | Backend REST em `https://api.exemplo.com` |
+| **Postgres** | — | Banco de dados (acesso interno apenas) |
+| **PgBouncer** | — | Pool de conexões (acesso interno apenas) |
+| **Asterisk** | SIP `5060/udp`, RTP `10000-20000/udp` | PBX (AMI/ARI internos, acessados só pela API) |
 
 ## 5. Acesse
 
 ```
-http://<IP_DA_VM>:7000
+https://app.exemplo.com
 ```
 
 ## Arquivos do orquestrador
@@ -116,6 +117,9 @@ sudo bash firewall-rules.sh
 
 # Executar init novamente (já instalado, apenas configura)
 sudo bash init.sh
+
+# Forçar renovação do certificado SSL do Traefik
+docker compose exec traefik traefik healthcheck
 ```
 
 ## Solução de problemas
@@ -145,3 +149,10 @@ O Asterisk usa `network_mode: host`. Verifique se as portas (5060, 5038, 8088, 1
 ```bash
 sudo ss -tulpn | grep -E '5060|5038|8088'
 ```
+
+### Certificado SSL não gerado
+
+O Traefik usa desafio TLS (porta 443). Certifique-se de que:
+1. O DNS de `app.exemplo.com` e `api.exemplo.com` aponte para o IP da VM
+2. A porta 443 esteja liberada no firewall da VM e no provedor de nuvem
+3. O email `LETSENCRYPT_EMAIL` no `.env` esteja correto

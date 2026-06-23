@@ -36,16 +36,20 @@ cat << "EOF"
 EOF
 echo
 
-# NOTA: o Asterisk roda em host networking, então seu tráfego (SIP/RTP/AMI/ARI)
+# NOTA: o Asterisk roda em host networking, então seu tráfego (SIP/RTP)
 # chega na chain INPUT (política DROP) — por isso precisa ser liberado aqui.
-# ⚠ Segurança: AMI (5038) e ARI (8088) dão controle total do PBX. A API os acessa
-# pelo gateway interno do Docker (host.docker.internal), NÃO pela internet. Em
-# produção, NÃO exponha 5038/8088 ao público — remova-os de PORTS_TCP e/ou
-# restrinja a origem à sub-rede do Docker (ex.: -s 172.16.0.0/12).
-PORTS_TCP=(22 7000 7001 7002 5038 8088 5061)
+# Apenas portas estritamente necessárias para acesso externo:
+# - 22  (SSH)     — administração do servidor
+# - 80  (HTTP)    — Traefik (redireciona para HTTPS + Let's Encrypt)
+# - 443 (HTTPS)   — Traefik (frontend app.exemplo.com + API api.exemplo.com)
+# - 5061 (SIP TLS) — ramais com SIP criptografado
+# AMI (5038) e ARI (8088) são internos — a API os acessa via host.docker.internal.
+# PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
+PORTS_TCP=(22 80 443 5061)
 PORTS_UDP=(5060)
 
-# Faixa de RTP (mídia/áudio) — DEVE casar com rtp.conf (rtpstart/rtpend).
+# Faixa de RTP (mídia/áudio das chamadas) — DEVE casar com rtp.conf (rtpstart/rtpend).
+# Necessária externamente para áudio bidirecional das ligações.
 RTP_UDP_RANGE="10000:20000"
 
 # ── 0. Verifica módulo conntrack ──────────────────────────────────────

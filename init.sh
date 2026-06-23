@@ -315,10 +315,9 @@ if docker compose version &>/dev/null; then
     docker compose up -d
     ok "Stack EasyFone iniciada."
     echo
-    echo -e "  ${GREEN}→${NC} Web:        http://localhost:7000"
-    echo -e "  ${GREEN}→${NC} API:        http://localhost:7002"
-    echo -e "  ${GREEN}→${NC} Postgres:   localhost:7001"
-    echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  AMI 5038  |  ARI 8088"
+    echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com}  |  https://api.${DOMAIN:-exemplo.com}"
+    echo -e "  ${GREEN}→${NC} Postgres:   localhost:${PG_PORT_HOST:-7001}  (interno)"
+    echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  RTP 10000-20000/udp  (AMI/ARI internos)"
   fi
 fi
 
