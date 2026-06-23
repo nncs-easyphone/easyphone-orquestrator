@@ -156,8 +156,12 @@ if ! command -v docker &>/dev/null; then
 else
   box_start "Autenticação GHCR"
 
-  if docker login ghcr.io &>/dev/null && docker pull ghcr.io/nncs-easyphone/easyphone-api:main --quiet &>/dev/null; then
-    ok "Já está autenticado no ghcr.io com token válido."
+  if docker login ghcr.io </dev/null &>/dev/null; then
+    if docker pull ghcr.io/nncs-easyphone/easyphone-api:main --quiet &>/dev/null; then
+      ok "Já está autenticado no ghcr.io com token válido."
+    else
+      warn "Autenticação OK, mas o pull falhou (verifique rede ou disponibilidade do registry)."
+    fi
   else
     echo ""
     warn "As imagens da stack estão em ghcr.io/nncs-easyphone"
@@ -345,5 +349,13 @@ echo -e "    ${BLUE}▶${NC} Subir a stack:         ${BOLD}docker compose up -d$
 echo -e "    ${BLUE}▶${NC} Parar a stack:          ${BOLD}docker compose down${NC}"
 echo -e "    ${BLUE}▶${NC} Ver logs:               ${BOLD}docker compose logs -f${NC}"
 echo -e "    ${BLUE}▶${NC} Reaplicar firewall:     ${BOLD}sudo bash firewall-rules.sh${NC}"
+echo
+echo -e "${BOLD}${BLUE}═══════════════════  LOG COMPLETO  ═══════════════════${NC}"
+echo
+if [[ -s "$LOGFILE" ]]; then
+  cat "$LOGFILE"
+else
+  echo "  (log vazio)"
+fi
 echo
 echo -e "${GREEN}${BOLD}✓ Init concluído com sucesso.${NC}"

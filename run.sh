@@ -35,6 +35,25 @@ ask_no() {
 }
 
 # ─────────────────────────────────────────────────────────────────────
+#  SISTEMA DE LOGS — caixa emoldurada + arquivo
+# ─────────────────────────────────────────────────────────────────────
+LOGFILE="/tmp/easyfone-orquestrator-run.log"
+: > "$LOGFILE"
+
+box_start() {
+  local title="$1"
+  local len=60
+  local dashes
+  dashes=$(printf '─%.0s' $(seq 1 $((len - ${#title} - 2))))
+  echo -e "┌─ ${BOLD}${title}${NC} ${dashes}┐"
+}
+
+box_end() {
+  echo -e "└$(printf '─%.0s' $(seq 1 58))┘"
+  echo
+}
+
+# ─────────────────────────────────────────────────────────────────────
 #  CARREGA .ENV
 # ─────────────────────────────────────────────────────────────────────
 ENV_FILE="$(dirname "$(readlink -f "$0")")/.env"
@@ -59,21 +78,35 @@ cd "$(dirname "$(readlink -f "$0")")"
 
 if [[ "$USE_BUILD" == "true" ]]; then
   info "USE_BUILD=true  → build local dos Dockerfiles"
-  docker compose up -d
+
+  box_start "Build e inicialização da stack"
+  docker compose up -d 2>&1 | tee -a "$LOGFILE"
+  echo ""
+  info "Logs de inicialização:"
+  docker compose logs --tail=100 2>&1 | tee -a "$LOGFILE"
+  box_end
 else
   info "USE_BUILD=false → imagens do registry"
 
-  # Verifica autenticação ghcr antes de tentar pull
-  if ! docker login ghcr.io &>/dev/null; then
+  # Verifica autenticação ghcr; </dev/null evita travamento
+  if ! docker login ghcr.io </dev/null &>/dev/null; then
     warn "Não autenticado no ghcr.io. Execute 'sudo bash init.sh' para configurar o login."
     if ! ask_no "Tentar pull mesmo assim?"; then
       exit 1
     fi
   fi
 
-  info "Fazendo pull das imagens…"
-  docker compose pull
-  docker compose up -d --no-build
+  box_start "Pull das imagens"
+  docker compose pull 2>&1 | tee -a "$LOGFILE"
+  ok "Imagens baixadas."
+  box_end
+
+  box_start "Inicialização da stack"
+  docker compose up -d --no-build 2>&1 | tee -a "$LOGFILE"
+  echo ""
+  info "Logs de inicialização:"
+  docker compose logs --tail=100 2>&1 | tee -a "$LOGFILE"
+  box_end
 fi
 
 ok "Stack EasyFone iniciada."
@@ -82,3 +115,5 @@ echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com}  /  h
 echo -e "  ${GREEN}→${NC} Postgres:   localhost:${PG_PORT_HOST:-7001}  (interno)"
 echo -e "  ${GREEN}→${NC} PgBouncer:  localhost:${PGBOUNCER_PORT_HOST:-7003}  (pool, interno)"
 echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  RTP 10000-20000/udp (AMI/ARI internos)"
+echo
+echo -e "  ${BOLD}Arquivo de log:${NC} $LOGFILE"
