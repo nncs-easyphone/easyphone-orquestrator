@@ -205,9 +205,9 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME}-web
     restart: unless-stopped
     ports:
-      - "${WEB_PORT_HOST}:${WEB_PORT_CONTAINER}"
+      - "${WEB_PORT_HOST}:3000"
     environment:
-      PORT: "${WEB_PORT_CONTAINER}"
+      PORT: "3000"
       VITE_API_URL: ${VITE_API_URL}
       VITE_API_DELAY: "${VITE_API_DELAY}"
       VITE_ENABLE_API_DELAY: "${VITE_ENABLE_API_DELAY}"
