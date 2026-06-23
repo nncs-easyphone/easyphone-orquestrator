@@ -25,9 +25,41 @@ ok()       { echo -e "${GREEN}[OK]${NC}       $*"; }
 warn()     { echo -e "${YELLOW}[WARN]${NC}     $*"; }
 error()    { echo -e "${RED}[ERROR]${NC}    $*"; }
 step()     { echo -e "\n${MAGENTA}${BOLD}━━━ $* ━━━${NC}"; }
-ask_yes()  { local prompt="$1 [S/n] "; read -r -p "$(echo -e "${YELLOW}?${NC} ${prompt}")" ans; [[ -z "$ans" || "$ans" =~ ^[SsYy] ]]; }
-ask_no()   { local prompt="$1 [s/N] "; read -r -p "$(echo -e "${YELLOW}?${NC} ${prompt}")" ans; [[ "$ans" =~ ^[SsYy] ]]; }
 divider()  { echo -e "${BLUE}────────────────────────────────────────────${NC}"; }
+
+# ─────────────────────────────────────────────────────────────────────
+#  FUNÇÕES DE INTERAÇÃO
+# ─────────────────────────────────────────────────────────────────────
+ask_yes() {
+  local prompt="$1 [S/n] " ans
+  read -r -p "$(echo -e "${YELLOW}?${NC} ${prompt}")" ans
+  [[ -z "${ans:-}" || "$ans" =~ ^[SsYy]$ ]]
+}
+
+ask_no() {
+  local prompt="$1 [s/N] " ans
+  read -r -p "$(echo -e "${YELLOW}?${NC} ${prompt}")" ans
+  [[ "${ans:-}" =~ ^[Ss]$ ]]
+}
+
+# ─────────────────────────────────────────────────────────────────────
+#  SISTEMA DE LOGS — caixa emoldurada + arquivo
+# ─────────────────────────────────────────────────────────────────────
+LOGFILE="/tmp/easyfone-orquestrator-install.log"
+: > "$LOGFILE"
+
+box_start() {
+  local title="$1"
+  local len=60
+  local dashes
+  dashes=$(printf '─%.0s' $(seq 1 $((len - ${#title} - 2))))
+  echo -e "┌─ ${BOLD}${title}${NC} ${dashes}┐"
+}
+
+box_end() {
+  echo -e "└$(printf '─%.0s' $(seq 1 58))┘"
+  echo
+}
 
 # ─────────────────────────────────────────────────────────────────────
 #  VERIFICAÇÕES INICIAIS
@@ -49,9 +81,10 @@ fi
 INSTALLED=()
 
 # Atualiza índice de pacotes uma única vez no início
-info "Atualizando índice de pacotes…"
-apt-get update -qq
+box_start "Atualização de pacotes"
+apt-get update 2>&1 | tee -a "$LOGFILE"
 ok "Índice de pacotes atualizado."
+box_end
 
 # ─────────────────────────────────────────────────────────────────────
 #  1. DOCKER
@@ -77,35 +110,40 @@ if ! command -v docker &>/dev/null || [[ " ${INSTALLED[*]} " =~ "docker (reinsta
       ok "curl instalado."
     fi
 
-    info "Baixando e executando script oficial get.docker.com…"
-    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sh /tmp/get-docker.sh
-    rm -f /tmp/get-docker.sh
-    ok "Docker instalado com sucesso."
-    INSTALLED+=("docker")
-
-    # Adiciona usuário não-root ao grupo docker
-    if [[ -n "${SUDO_USER:-}" ]]; then
-      usermod -aG docker "$SUDO_USER"
-      info "Usuário '$SUDO_USER' adicionado ao grupo docker."
-      info "Requisite um novo shell ou faça logout/login para usar docker sem sudo."
-    fi
-
-    systemctl enable docker &>/dev/null || true
-    systemctl start docker  &>/dev/null || true
-    ok "docker.service habilitado e iniciado."
-
-    # Valida que o daemon está rodando
-    if docker info &>/dev/null; then
-      ok "Docker daemon operacional."
+    box_start "Instalação do Docker"
+    if ! curl -fsSL https://get.docker.com | sh 2>&1 | tee -a "$LOGFILE"; then
+      error "Falha na instalação do Docker."
     else
-      warn "Docker instalado, mas o daemon pode não ter iniciado completamente."
-      warn "Execute 'docker info' manualmente para verificar."
+      ok "Docker instalado com sucesso."
+      INSTALLED+=("docker")
+
+      if [[ -n "${SUDO_USER:-}" ]]; then
+        usermod -aG docker "$SUDO_USER"
+        info "Usuário '$SUDO_USER' adicionado ao grupo docker."
+        info "Requisite um novo shell ou faça logout/login para usar docker sem sudo."
+      fi
+
+      if docker info &>/dev/null; then
+        ok "Docker daemon operacional."
+      else
+        warn "Docker instalado, mas o daemon pode não ter iniciado completamente."
+        warn "Execute 'docker info' manualmente para verificar."
+      fi
     fi
+    box_end
   else
     echo "  → Pulando instalação do Docker."
   fi
 fi
+
+# Garante Docker habilitado no boot (sempre, não só na instalação)
+if command -v docker &>/dev/null; then
+  systemctl enable docker &>/dev/null || true
+  systemctl start docker  &>/dev/null || true
+  ok "Docker habilitado e iniciado no boot."
+fi
+
+divider
 
 # ─────────────────────────────────────────────────────────────────────
 #  2. GHCR LOGIN
@@ -116,30 +154,49 @@ if ! command -v docker &>/dev/null; then
   warn "Docker não está disponível. Faça o login manual depois com:"
   echo "  echo TOKEN | docker login ghcr.io -u USERNAME --password-stdin"
 else
-  if docker login ghcr.io &>/dev/null 2>&1; then
-    ok "Já está autenticado no ghcr.io."
+  box_start "Autenticação GHCR"
+
+  if docker login ghcr.io &>/dev/null && docker pull ghcr.io/nncs-easyphone/easyphone-api:main --quiet &>/dev/null; then
+    ok "Já está autenticado no ghcr.io com token válido."
   else
     echo ""
     warn "As imagens da stack estão em ghcr.io/nncs-easyphone"
     warn "Você precisa de um Personal Access Token (PAT) do GitHub com escopo 'read:packages'."
     echo ""
     if ask_yes "Fazer login no ghcr.io agora?"; then
-      echo -e "${YELLOW}?${NC} Informe seu usuário do GitHub:"
-      read -r -p "$(echo -e '  → ')" GHCR_USER
-      echo -e "${YELLOW}?${NC} Informe seu Personal Access Token (PAT) com escopo 'read:packages':"
-      read -r -s -p "$(echo -e '  → ')" GHCR_TOKEN
-      echo
-      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin && {
-        ok "Autenticado no ghcr.io como '$GHCR_USER'."
-      } || {
+      GHCR_USER=""
+      while [[ -z "$GHCR_USER" ]]; do
+        echo -e "${YELLOW}?${NC} Informe seu usuário do GitHub:"
+        read -r -p "$(echo -e '  → ')" GHCR_USER
+        [[ -z "$GHCR_USER" ]] && warn "Usuário não pode estar vazio."
+      done
+
+      GHCR_TOKEN=""
+      while [[ -z "$GHCR_TOKEN" ]]; do
+        echo -e "${YELLOW}?${NC} Informe seu Personal Access Token (PAT) com escopo 'read:packages':"
+        read -r -s -p "$(echo -e '  → ')" GHCR_TOKEN
+        echo
+        [[ -z "$GHCR_TOKEN" ]] && warn "Token não pode estar vazio."
+      done
+
+      if printf '%s\n' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
+        if docker pull ghcr.io/nncs-easyphone/easyphone-api:main --quiet &>/dev/null; then
+          ok "Autenticado no ghcr.io como '$GHCR_USER' — token válido."
+        else
+          warn "Login OK, mas o pull falhou. O token pode não ter escopo 'read:packages'."
+          warn "Verifique o PAT em: https://github.com/settings/tokens"
+        fi
+      else
         error "Falha na autenticação. Verifique o usuário e o token."
-      }
-      unset GHCR_TOKEN
+      fi
     else
       echo "  → Pulando login. Você pode fazer manualmente depois:"
       echo "      echo TOKEN | docker login ghcr.io -u USERNAME --password-stdin"
     fi
   fi
+
+  unset GHCR_TOKEN GHCR_USER
+  box_end
 fi
 
 divider
@@ -154,19 +211,27 @@ IPTABLES_INSTALLED=false
 if ! command -v iptables &>/dev/null; then
   warn "iptables não encontrado."
   if ask_yes "Instalar iptables?"; then
-    apt-get install -y -qq iptables
-    ok "iptables instalado."
+    box_start "Instalação do iptables"
+    if ! apt-get install -y iptables 2>&1 | tee -a "$LOGFILE"; then
+      error "Falha na instalação do iptables."
+    else
+      ok "iptables instalado."
+      IPTABLES_INSTALLED=true
+      INSTALLED+=("iptables")
 
-    # iptables-persistent faz perguntas interativas; tratamos via debconf
-    if ask_yes "Instalar iptables-persistent (persistência de regras entre reboots)?"; then
-      echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-      echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables-persistent
-      ok "iptables-persistent instalado."
+      if ask_yes "Instalar iptables-persistent (persistência de regras entre reboots)?"; then
+        box_start "Instalação do iptables-persistent"
+        echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+        echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent 2>&1 | tee -a "$LOGFILE"; then
+          error "Falha na instalação do iptables-persistent."
+        else
+          ok "iptables-persistent instalado."
+        fi
+        box_end
+      fi
     fi
-
-    INSTALLED+=("iptables")
-    IPTABLES_INSTALLED=true
+    box_end
   else
     echo "  → Pulando instalação do iptables."
   fi
@@ -174,12 +239,17 @@ else
   ok "iptables já está instalado: $(iptables --version 2>/dev/null)"
   IPTABLES_INSTALLED=true
 
-  if ! dpkg -l iptables-persistent &>/dev/null; then
+  if ! dpkg-query -W -f='${Status}' iptables-persistent 2>/dev/null | grep -q "install ok installed"; then
     if ask_yes "Instalar iptables-persistent para persistência de regras?"; then
+      box_start "Instalação do iptables-persistent"
       echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
       echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables-persistent
-      ok "iptables-persistent instalado."
+      if ! DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent 2>&1 | tee -a "$LOGFILE"; then
+        error "Falha na instalação do iptables-persistent."
+      else
+        ok "iptables-persistent instalado."
+      fi
+      box_end
     fi
   fi
 fi
@@ -187,7 +257,7 @@ fi
 divider
 
 # ─────────────────────────────────────────────────────────────────────
-#  3. FIREWALL RULES
+#  4. FIREWALL RULES
 # ─────────────────────────────────────────────────────────────────────
 step "4/5 — Regras de Firewall"
 
@@ -199,9 +269,10 @@ if [[ ! -f "$FIREWALL_SCRIPT" ]]; then
 elif ! $IPTABLES_INSTALLED; then
   warn "iptables não está instalado; não é possível aplicar regras de firewall."
 elif ask_yes "Aplicar regras de firewall padrão agora?"; then
-  info "Executando $FIREWALL_SCRIPT …"
-  bash "$FIREWALL_SCRIPT"
+  box_start "Aplicação de regras de firewall"
+  bash "$FIREWALL_SCRIPT" 2>&1 | tee -a "$LOGFILE"
   ok "Regras de firewall aplicadas."
+  box_end
   INSTALLED+=("firewall-rules")
 else
   echo "  → Regras de firewall não aplicadas."
@@ -211,7 +282,7 @@ fi
 divider
 
 # ─────────────────────────────────────────────────────────────────────
-#  4. DOCKER COMPOSE  (plugin)
+#  5. DOCKER COMPOSE  (plugin)
 # ─────────────────────────────────────────────────────────────────────
 step "5/5 — Docker Compose"
 
@@ -220,17 +291,23 @@ if docker compose version &>/dev/null; then
 else
   warn "Plugin 'docker compose' não encontrado."
   if ask_yes "Instalar docker-compose-plugin?"; then
-    apt-get install -y -qq docker-compose-plugin
-    ok "docker-compose-plugin instalado."
-    INSTALLED+=("docker-compose-plugin")
+    box_start "Instalação do Docker Compose"
+    if ! apt-get install -y docker-compose-plugin 2>&1 | tee -a "$LOGFILE"; then
+      error "Falha na instalação do docker-compose-plugin."
+    else
+      ok "docker-compose-plugin instalado."
+      INSTALLED+=("docker-compose-plugin")
+    fi
+    box_end
   fi
 fi
 
 if docker compose version &>/dev/null; then
   if ask_no "Fazer pull das imagens agora (docker compose pull)?"; then
-    info "Baixando imagens…"
-    docker compose pull
+    box_start "Pull das imagens Docker"
+    docker compose pull 2>&1 | tee -a "$LOGFILE"
     ok "Imagens baixadas."
+    box_end
   fi
 
   if ask_no "Deseja subir a stack agora (docker compose up -d)?"; then
@@ -261,6 +338,8 @@ else
     echo -e "    ${GREEN}✓${NC} $item"
   done
 fi
+echo
+echo -e "  ${BOLD}Arquivo de log:${NC} $LOGFILE"
 echo
 echo -e "  ${BOLD}Comandos úteis:${NC}"
 echo -e "    ${BLUE}▶${NC} Subir a stack:         ${BOLD}docker compose up -d${NC}"

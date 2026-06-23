@@ -3,7 +3,10 @@
 # EasyFone Orchestrator — Regras de Firewall (iptables)
 # Uso: sudo bash firewall-rules.sh
 #
-# Define regras de entrada para as portas do projeto.
+# Define regras de entrada para as portas do projeto usando
+# uma chain dedicada (EASYFONE_INPUT) para não interferir
+# nas regras geridas pelo Docker.
+#
 # NOTA: FORWARD fica ACCEPT para não quebrar o roteamento de redes do Docker.
 # IPv6 deve estar desabilitado no kernel; este script não configura ip6tables.
 
@@ -39,73 +42,83 @@ echo
 # pelo gateway interno do Docker (host.docker.internal), NÃO pela internet. Em
 # produção, NÃO exponha 5038/8088 ao público — remova-os de PORTS_TCP e/ou
 # restrinja a origem à sub-rede do Docker (ex.: -s 172.16.0.0/12).
-PORTS_TCP=(22 7000 7001 7002 5038 8088 8089 5061)
+PORTS_TCP=(22 7000 7001 7002 5038 8088 5061)
 PORTS_UDP=(5060)
 
 # Faixa de RTP (mídia/áudio) — DEVE casar com rtp.conf (rtpstart/rtpend).
 RTP_UDP_RANGE="10000:20000"
 
-# ── 1. Limpeza (apenas INPUT/OUTPUT, preserva chains do Docker) ────
-info "Limpando regras das chains INPUT e OUTPUT…"
-iptables -F INPUT
-iptables -F OUTPUT
-ok "Regras antigas de INPUT/OUTPUT removidas (Docker intacto)."
+# ── 0. Verifica módulo conntrack ──────────────────────────────────────
+if ! lsmod 2>/dev/null | grep -q nf_conntrack; then
+  modprobe nf_conntrack 2>/dev/null || warn "Módulo nf_conntrack não disponível — regras ESTABLISHED,RELATED podem falhar."
+fi
+
+# ── 1. Cria e limpa a chain dedicada EASYFONE_INPUT ──────────────────
+#     (Assim nunca mexemos nas regras do Docker)
+iptables -N EASYFONE_INPUT 2>/dev/null || true
+iptables -F EASYFONE_INPUT
+ok "Chain EASYFONE_INPUT limpa."
 
 # ── 2. Conexões estabelecidas / related ──────────────────────────────
-# PRIMEIRO liberamos conexões ativas (ex: SSH atual) ANTES de mudar
-# a política padrão para DROP, evitando queda da sessão.
-iptables -A INPUT   -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+#     PRIMEIRO liberamos conexões ativas (ex: SSH atual) ANTES de mudar
+#     a política padrão para DROP, evitando queda da sessão.
+#     Usamos -C para evitar duplicar regras entre execuções.
+if ! iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT &>/dev/null; then
+  iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+fi
+if ! iptables -C FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT &>/dev/null; then
+  iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+fi
 ok "Conexões estabelecidas/related aceitas."
 
 # ── 3. Políticas padrão ──────────────────────────────────────────────
-# INPUT → DROP  (bloqueia tudo que não foi explicitamente liberado)
-# FORWARD → ACCEPT  (obrigatório para o Docker rotear tráfego entre
-#                     containers e para fora; o Docker gerencia suas
-#                     próprias restrições nas chains DOCKER / DOCKER-USER)
-info "Definindo políticas padrão…"
+#     INPUT → DROP  (bloqueia tudo que não foi explicitamente liberado)
+#     FORWARD → ACCEPT  (obrigatório para o Docker rotear tráfego entre
+#                        containers e para fora; o Docker gerencia suas
+#                        próprias restrições nas chains DOCKER / DOCKER-USER)
 iptables -P INPUT   DROP
 iptables -P FORWARD ACCEPT
 iptables -P OUTPUT  ACCEPT
 ok "Políticas definidas: INPUT=DROP  FORWARD=ACCEPT  OUTPUT=ACCEPT"
 
 # ── 4. Loopback ──────────────────────────────────────────────────────
-iptables -A INPUT -i lo -j ACCEPT
+if ! iptables -C INPUT -i lo -j ACCEPT &>/dev/null; then
+  iptables -A INPUT -i lo -j ACCEPT
+fi
 ok "Loopback liberado."
 
 # ── 5. ICMP (ping) ───────────────────────────────────────────────────
-iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
+if ! iptables -C INPUT -p icmp --icmp-type echo-request -j ACCEPT &>/dev/null; then
+  iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
+fi
 ok "ICMP echo-request liberado."
 
-# ── 6. Portas TCP ────────────────────────────────────────────────────
-info "Liberando portas TCP…"
+# ── 6. Jump da INPUT para a chain dedicada ───────────────────────────
+if ! iptables -C INPUT -j EASYFONE_INPUT &>/dev/null; then
+  iptables -A INPUT -j EASYFONE_INPUT
+fi
+ok "Tráfego da stack encaminhado para chain EASYFONE_INPUT."
+
+# ── 7. Portas TCP (regras na chain dedicada) ─────────────────────────
+info "Liberando portas TCP na EASYFONE_INPUT…"
 for port in "${PORTS_TCP[@]}"; do
-  iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+  iptables -A EASYFONE_INPUT -p tcp --dport "$port" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} TCP/$port"
 done
 
-# ── 7. Portas UDP ────────────────────────────────────────────────────
-info "Liberando portas UDP…"
+# ── 8. Portas UDP (regras na chain dedicada) ─────────────────────────
+info "Liberando portas UDP na EASYFONE_INPUT…"
 for port in "${PORTS_UDP[@]}"; do
-  iptables -A INPUT -p udp --dport "$port" -j ACCEPT
+  iptables -A EASYFONE_INPUT -p udp --dport "$port" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} UDP/$port"
 done
 
-# ── 7b. Faixa de RTP (mídia) ──────────────────────────────────────────
-info "Liberando faixa de RTP (UDP ${RTP_UDP_RANGE})…"
-iptables -A INPUT -p udp --dport "$RTP_UDP_RANGE" -j ACCEPT
+# ── 9. Faixa de RTP (mídia) ─────────────────────────────────────────
+info "Liberando faixa de RTP (UDP ${RTP_UDP_RANGE}) na EASYFONE_INPUT…"
+iptables -A EASYFONE_INPUT -p udp --dport "$RTP_UDP_RANGE" -j ACCEPT
 echo -e "  ${GREEN}✓${NC} UDP/${RTP_UDP_RANGE} (RTP)"
 
-# ── 8. NOTA sobre Docker ──────────────────────────────────────────────
-# O Docker gerencia automaticamente suas próprias regras de FORWARD,
-# NAT e bridges (docker0, docker_gwbridge, etc.).
-# Não inserimos regras manuais nessas chains para evitar conflitos.
-#
-# ⚠ FORWARD policy = ACCEPT (indispensável para o Docker).
-# Se precisar restringir tráfego entre containers, use a chain DOCKER-USER:
-#   iptables -A DOCKER-USER -i docker0 -o docker0 -j DROP
-
-# ── 9. Persistência ──────────────────────────────────────────────────
+# ── 10. Persistência ─────────────────────────────────────────────────
 echo
 info "Salvando regras para restaurar no boot…"
 
@@ -121,7 +134,7 @@ else
   ok "Diretório /etc/iptables criado e regras salvas."
 fi
 
-# ── 10. Aviso sobre Docker ───────────────────────────────────────────
+# ── 11. Aviso sobre Docker ──────────────────────────────────────────
 if pidof dockerd &>/dev/null; then
   ok "Docker detectado — chains e regras do Docker foram preservadas."
 fi

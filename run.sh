@@ -26,6 +26,15 @@ warn()     { echo -e "${YELLOW}[WARN]${NC}     $*"; }
 error()    { echo -e "${RED}[ERROR]${NC}    $*"; }
 
 # ─────────────────────────────────────────────────────────────────────
+#  FUNÇÕES DE INTERAÇÃO
+# ─────────────────────────────────────────────────────────────────────
+ask_no() {
+  local prompt="$1 [s/N] " ans
+  read -r -p "$(echo -e "${YELLOW}?${NC} ${prompt}")" ans
+  [[ "${ans:-}" =~ ^[Ss]$ ]]
+}
+
+# ─────────────────────────────────────────────────────────────────────
 #  CARREGA .ENV
 # ─────────────────────────────────────────────────────────────────────
 ENV_FILE="$(dirname "$(readlink -f "$0")")/.env"
@@ -53,6 +62,15 @@ if [[ "$USE_BUILD" == "true" ]]; then
   docker compose up -d
 else
   info "USE_BUILD=false → imagens do registry"
+
+  # Verifica autenticação ghcr antes de tentar pull
+  if ! docker login ghcr.io &>/dev/null; then
+    warn "Não autenticado no ghcr.io. Execute 'sudo bash init.sh' para configurar o login."
+    if ! ask_no "Tentar pull mesmo assim?"; then
+      exit 1
+    fi
+  fi
+
   info "Fazendo pull das imagens…"
   docker compose pull
   docker compose up -d --no-build
