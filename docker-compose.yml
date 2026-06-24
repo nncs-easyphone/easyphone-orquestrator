@@ -216,6 +216,7 @@ services:
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=easyfone-traefik-public"
       - "traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
@@ -265,6 +266,7 @@ services:
       VITE_MAX_FILE_SIZE_UPLOAD_IVR_AUDIO: "${VITE_MAX_FILE_SIZE_UPLOAD_IVR_AUDIO}"
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=easyfone-traefik-public"
       - "traefik.http.routers.web.rule=Host(`app.${DOMAIN}`)"
       - "traefik.http.routers.web.entrypoints=websecure"
       - "traefik.http.routers.web.tls.certresolver=letsencrypt"
