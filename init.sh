@@ -277,10 +277,10 @@ else
   box_start "Autenticação GHCR"
 
   if docker login ghcr.io </dev/null &>/dev/null; then
-    if docker pull ghcr.io/nncs-easyphone/easyphone-api:main --quiet &>/dev/null; then
+    if docker buildx imagetools inspect ghcr.io/nncs-easyphone/easyphone-api:main &>/dev/null; then
       ok "Já está autenticado no ghcr.io com token válido."
     else
-      warn "Autenticação OK, mas o pull falhou (verifique rede ou disponibilidade do registry)."
+      warn "Autenticação OK, mas a verificação da imagem falhou (verifique rede ou disponibilidade do registry)."
     fi
   else
     echo ""
@@ -304,10 +304,10 @@ else
       done
 
       if printf '%s\n' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
-        if docker pull ghcr.io/nncs-easyphone/easyphone-api:main --quiet &>/dev/null; then
+        if docker buildx imagetools inspect ghcr.io/nncs-easyphone/easyphone-api:main &>/dev/null; then
           ok "Autenticado no ghcr.io como '$GHCR_USER' — token válido."
         else
-          warn "Login OK, mas o pull falhou. O token pode não ter escopo 'read:packages'."
+          warn "Login OK, mas a verificação da imagem falhou. O token pode não ter escopo 'read:packages'."
           warn "Verifique o PAT em: https://github.com/settings/tokens"
         fi
       else
