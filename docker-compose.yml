@@ -10,6 +10,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_data:/etc/traefik
     networks:
+      - default          # FIX 1: adicionado para garantir alcance a api/web mesmo sem label
       - traefik-public
     command:
       - "--providers.docker=true"
@@ -35,6 +36,8 @@ services:
       TZ: UTC
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - default
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -65,6 +68,8 @@ services:
       MAX_PREPARED_STATEMENTS: "100"
       IGNORE_STARTUP_PARAMETERS: "extra_float_digits,application_name"
       STATS_USERS: postgres
+    networks:
+      - default
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +90,8 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    networks:
+      - default
     depends_on:
       postgres:
         condition: service_healthy
@@ -158,6 +165,8 @@ services:
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
     volumes:
       - asterisk_config:/etc/asterisk
       - asterisk_lib:/var/lib/asterisk
@@ -290,5 +299,7 @@ volumes:
   traefik_data:
 
 networks:
+  default:
+    driver: bridge
   traefik-public:
     name: easyfone-traefik-public

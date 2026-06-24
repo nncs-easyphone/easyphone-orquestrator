@@ -1,14 +1,20 @@
 {
   "cSpell.words": [
+    "certificatesresolvers",
     "DIALPLAN",
     "easyfone",
     "easyphone",
+    "exposedbydefault",
     "healthcheck",
     "isready",
+    "letsencrypt",
     "nncs",
     "pgdata",
     "postgres",
     "postgresql",
-    "waitfullybooted"
+    "redirections",
+    "traefik",
+    "waitfullybooted",
+    "websecure"
   ]
 }
