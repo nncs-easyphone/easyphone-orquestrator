@@ -42,6 +42,20 @@ ask_no() {
   [[ "${ans:-}" =~ ^[Ss]$ ]]
 }
 
+ask_value() {
+  local prompt="$1" default="$2" var_name="$3" ans
+  read -r -p "$(echo -e "${YELLOW}?${NC} ${prompt} [${default}]: ")" ans
+  ans="${ans:-$default}"
+  printf -v "$var_name" '%s' "$ans"
+}
+
+update_env() {
+  local key="$1" value="$2" file="$3"
+  local escaped
+  escaped=$(printf '%s\n' "$value" | sed 's/[\/&]/\\&/g')
+  sed -i "s/^${key}=.*/${key}=${escaped}/" "$file"
+}
+
 # ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
 # ─────────────────────────────────────────────────────────────────────
@@ -87,9 +101,115 @@ ok "Índice de pacotes atualizado."
 box_end
 
 # ─────────────────────────────────────────────────────────────────────
+#  0. CONFIGURAÇÃO DE AMBIENTE (.env)
+# ─────────────────────────────────────────────────────────────────────
+step "0/6 — Configuração de Ambiente (.env)"
+
+ENV_FILE="$(dirname "$(readlink -f "$0")")/.env"
+ENV_EXAMPLE="$(dirname "$(readlink -f "$0")")/.env.example"
+
+if [[ -f "$ENV_FILE" ]]; then
+  ok "Arquivo .env já existe — pulando configuração."
+else
+  info "Criando .env a partir do .env.example..."
+  cp "$ENV_EXAMPLE" "$ENV_FILE"
+
+  box_start "Configuração Global"
+  ask_value "Domínio padrão (ex: easyfone.com.br)" "exemplo.com" DOMAIN
+  update_env "DOMAIN" "$DOMAIN" "$ENV_FILE"
+
+  ask_value "Email para Let's Encrypt" "admin@exemplo.com" LETSENCRYPT_EMAIL
+  update_env "LETSENCRYPT_EMAIL" "$LETSENCRYPT_EMAIL" "$ENV_FILE"
+  box_end
+
+  # ── Postgres ──
+  if ask_yes "Configurar variáveis do Postgres?"; then
+    box_start "Configuração Postgres"
+    ask_value "Usuário do Postgres" "easyfone" POSTGRES_USER
+    update_env "POSTGRES_USER" "$POSTGRES_USER" "$ENV_FILE"
+
+    printf -v RANDOM_PG_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyfone')"
+    ask_value "Senha do Postgres" "$RANDOM_PG_PASS" POSTGRES_PASSWORD
+    update_env "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" "$ENV_FILE"
+
+    ask_value "Banco padrão" "easyfone" POSTGRES_DB
+    update_env "POSTGRES_DB" "$POSTGRES_DB" "$ENV_FILE"
+    box_end
+  else
+    ok "Mantendo valores padrão do Postgres."
+  fi
+
+  # ── API ──
+  if ask_yes "Configurar variáveis da API (JWT, crypto key)?"; then
+    box_start "Configuração da API"
+    printf -v RANDOM_JWT '%s' "$(openssl rand -base64 32 2>/dev/null || echo 'easyfone-jwt-secret')"
+    ask_value "JWT Secret" "$RANDOM_JWT" JWT_SECRET
+    update_env "JWT_SECRET" "$JWT_SECRET" "$ENV_FILE"
+
+    printf -v RANDOM_CRYPTO '%s' "$(openssl rand -base64 24 2>/dev/null || echo 'easyfone-crypto-key-32bytes!')"
+    ask_value "Data Secret Cryptography Key" "$RANDOM_CRYPTO" DATA_SECRET_CRYPTOGRAPHY_KEY
+    update_env "DATA_SECRET_CRYPTOGRAPHY_KEY" "$DATA_SECRET_CRYPTOGRAPHY_KEY" "$ENV_FILE"
+    box_end
+  else
+    ok "Mantendo valores padrão da API."
+  fi
+
+  # ── Asterisk ──
+  if ask_yes "Configurar variáveis do Asterisk?"; then
+    box_start "Configuração Asterisk"
+    ask_value "DB Name" "easyfone" ASTERISK_DB_NAME
+    update_env "ASTERISK_DB_NAME" "$ASTERISK_DB_NAME" "$ENV_FILE"
+
+    ask_value "DB User" "easyfone" ASTERISK_DB_USER
+    update_env "ASTERISK_DB_USER" "$ASTERISK_DB_USER" "$ENV_FILE"
+
+    printf -v RANDOM_DB_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyfone')"
+    ask_value "DB Password" "$RANDOM_DB_PASS" ASTERISK_DB_PASS
+    update_env "ASTERISK_DB_PASS" "$ASTERISK_DB_PASS" "$ENV_FILE"
+
+    ask_value "AMI Username" "easyphone" VITE_ASTERISK_USERNAME
+    update_env "VITE_ASTERISK_USERNAME" "$VITE_ASTERISK_USERNAME" "$ENV_FILE"
+
+    printf -v RANDOM_AMI_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'test123')"
+    ask_value "AMI Password" "$RANDOM_AMI_PASS" VITE_ASTERISK_PASSWORD
+    update_env "VITE_ASTERISK_PASSWORD" "$VITE_ASTERISK_PASSWORD" "$ENV_FILE"
+    box_end
+  else
+    ok "Mantendo valores padrão do Asterisk."
+  fi
+
+  # ── Firebase ──
+  if ask_yes "Configurar Firebase Service Account?"; then
+    box_start "Configuração Firebase"
+    warn "Cole o JSON do Firebase Service Account (linha única) e pressione Enter:"
+    read -r FIREBASE_JSON
+    if [[ -n "$FIREBASE_JSON" ]]; then
+      update_env "FIREBASE_SERVICE_ACCOUNT" "$FIREBASE_JSON" "$ENV_FILE"
+      ok "Firebase Service Account configurada."
+    else
+      warn "Nada foi colado — mantendo valor padrão."
+    fi
+    box_end
+  else
+    ok "Mantendo valor padrão do Firebase."
+  fi
+
+  ok ".env configurado com sucesso!"
+fi
+
+# Carrega .env para os steps seguintes (se existe)
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  source "$ENV_FILE"
+  set +a
+fi
+
+divider
+
+# ─────────────────────────────────────────────────────────────────────
 #  1. DOCKER
 # ─────────────────────────────────────────────────────────────────────
-step "1/5 — Docker Engine"
+step "1/6 — Docker Engine"
 
 if command -v docker &>/dev/null; then
   ok "Docker já está instalado: $(docker --version 2>/dev/null)"
@@ -148,7 +268,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  2. GHCR LOGIN
 # ─────────────────────────────────────────────────────────────────────
-step "2/5 — GitHub Container Registry (ghcr.io)"
+step "2/6 — GitHub Container Registry (ghcr.io)"
 
 if ! command -v docker &>/dev/null; then
   warn "Docker não está disponível. Faça o login manual depois com:"
@@ -157,10 +277,10 @@ else
   box_start "Autenticação GHCR"
 
   if docker login ghcr.io </dev/null &>/dev/null; then
-    if docker pull ghcr.io/nncs-easyphone/easyphone-api:main --quiet &>/dev/null; then
+    if docker buildx imagetools inspect ghcr.io/nncs-easyphone/easyphone-api:main &>/dev/null; then
       ok "Já está autenticado no ghcr.io com token válido."
     else
-      warn "Autenticação OK, mas o pull falhou (verifique rede ou disponibilidade do registry)."
+      warn "Autenticação OK, mas a verificação da imagem falhou (verifique rede ou disponibilidade do registry)."
     fi
   else
     echo ""
@@ -184,10 +304,10 @@ else
       done
 
       if printf '%s\n' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
-        if docker pull ghcr.io/nncs-easyphone/easyphone-api:main --quiet &>/dev/null; then
+        if docker buildx imagetools inspect ghcr.io/nncs-easyphone/easyphone-api:main &>/dev/null; then
           ok "Autenticado no ghcr.io como '$GHCR_USER' — token válido."
         else
-          warn "Login OK, mas o pull falhou. O token pode não ter escopo 'read:packages'."
+          warn "Login OK, mas a verificação da imagem falhou. O token pode não ter escopo 'read:packages'."
           warn "Verifique o PAT em: https://github.com/settings/tokens"
         fi
       else
@@ -208,7 +328,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  3. IPTABLES
 # ─────────────────────────────────────────────────────────────────────
-step "3/5 — iptables"
+step "3/6 — iptables"
 
 IPTABLES_INSTALLED=false
 
@@ -263,7 +383,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  4. FIREWALL RULES
 # ─────────────────────────────────────────────────────────────────────
-step "4/5 — Regras de Firewall"
+step "4/6 — Regras de Firewall"
 
 FIREWALL_SCRIPT="$(dirname "$(readlink -f "$0")")/firewall-rules.sh"
 
@@ -288,7 +408,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  5. DOCKER COMPOSE  (plugin)
 # ─────────────────────────────────────────────────────────────────────
-step "5/5 — Docker Compose"
+step "5/6 — Docker Compose"
 
 if docker compose version &>/dev/null; then
   ok "Docker Compose já está disponível: $(docker compose version 2>/dev/null)"
