@@ -49,6 +49,7 @@ services:
     ports:
       - "7003:6432"
     environment:
+      AUTH_TYPE: scram-sha-256
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       LISTEN_PORT: "6432"
       POOL_MODE: transaction
