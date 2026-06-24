@@ -1,7 +1,7 @@
 services:
   traefik:
     image: traefik:v3
-    container_name: ${COMPOSE_PROJECT_NAME}-traefik
+    container_name: easyfone-traefik
     restart: unless-stopped
     ports:
       - "80:80"
@@ -13,7 +13,7 @@ services:
       - traefik-public
     command:
       - "--providers.docker=true"
-      - "--providers.docker.network=${COMPOSE_PROJECT_NAME}-traefik-public"
+      - "--providers.docker.network=easyfone-traefik-public"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
@@ -23,16 +23,16 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme.json"
 
   postgres:
-    image: postgres:${POSTGRES_IMAGE_TAG}
-    container_name: ${COMPOSE_PROJECT_NAME}-pg
+    image: postgres:17-alpine
+    container_name: easyfone-pg
     restart: unless-stopped
     ports:
-      - "${PG_PORT_HOST}:5432"
+      - "7001:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      TZ: ${TZ}
+      TZ: UTC
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -44,10 +44,10 @@ services:
 
   pgbouncer:
     image: edoburu/pgbouncer:latest
-    container_name: ${COMPOSE_PROJECT_NAME}-pgbouncer
+    container_name: easyfone-pgbouncer
     restart: unless-stopped
     ports:
-      - "${PGBOUNCER_PORT_HOST}:6432"
+      - "7003:6432"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       LISTEN_PORT: "6432"
@@ -75,11 +75,11 @@ services:
       start_period: 5s
 
   migrations:
-    image: ${API_IMAGE}
+    image: ghcr.io/nncs-easyphone/easyphone-api:main
     build:
       context: ../easyphone-api
       dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}-migrations
+    container_name: easyfone-migrations
     command: sh -c "npx prisma migrate deploy"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -89,22 +89,16 @@ services:
         condition: service_healthy
 
   asterisk:
-    image: ${ASTERISK_IMAGE}
+    image: ghcr.io/nncs-easyphone/easyphone-asterisk:main
     build:
       context: ../easyphone-asterisk
       dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}-asterisk
+    container_name: easyfone-asterisk
     restart: unless-stopped
-    # Host networking: SIP/RTP nativo (sem NAT/proxy do Docker). Evita o problema
-    # de publicar ~10 mil portas UDP de RTP (que estourava a RAM no VPS) e o áudio
-    # em sentido único do NAT. NÃO usar 'ports:' com host networking — o Asterisk
-    # já escuta nas portas reais do host (5060/5061/5038/8088/8089 + RTP 10000-20000).
     network_mode: host
     environment:
-      # Em host networking o nome de serviço 'postgres' (bridge) não resolve;
-      # o Postgres é publicado em ${PG_PORT_HOST} no host.
       DB_HOST: 127.0.0.1
-      DB_PORT: "${PG_PORT_HOST}"
+      DB_PORT: "7001"
       DB_NAME: ${ASTERISK_DB_NAME}
       DB_USER: ${ASTERISK_DB_USER}
       DB_PASS: ${ASTERISK_DB_PASS}
@@ -128,11 +122,11 @@ services:
         condition: service_completed_successfully
 
   seed:
-    image: ${API_IMAGE}
+    image: ghcr.io/nncs-easyphone/easyphone-api:main
     build:
       context: ../easyphone-api
       dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}-seed
+    container_name: easyfone-seed
     command: sh -c "npx prisma db seed"
     environment:
       NODE_ENV: ${NODE_ENV}
@@ -145,15 +139,15 @@ services:
       MAX_CAPTURE_GROUPS: "${MAX_CAPTURE_GROUPS}"
       VITE_EF_FILES_FOLDER_PATH: ${VITE_EF_FILES_FOLDER_PATH}
       VITE_ASTERISK_HOST: host.docker.internal
-      VITE_ASTERISK_ARI_PORT: "${VITE_ASTERISK_ARI_PORT}"
-      VITE_ASTERISK_AMI_PORT: "${VITE_ASTERISK_AMI_PORT}"
+      VITE_ASTERISK_ARI_PORT: "8088"
+      VITE_ASTERISK_AMI_PORT: "5038"
       VITE_ASTERISK_USERNAME: ${VITE_ASTERISK_USERNAME}
       VITE_ASTERISK_PASSWORD: ${VITE_ASTERISK_PASSWORD}
-      VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS: "${VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS}"
-      VITE_APP_NAME_ARI_ASTERISK: ${VITE_APP_NAME_ARI_ASTERISK}
-      PRISMA_LOGS_OFF: "${PRISMA_LOGS_OFF}"
-      PG_POOL_MAX: "${PG_POOL_MAX}"
-      PG_POOL_MIN: "${PG_POOL_MIN}"
+      VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS: "15000"
+      VITE_APP_NAME_ARI_ASTERISK: easyphone
+      PRISMA_LOGS_OFF: "true"
+      PG_POOL_MAX: "20"
+      PG_POOL_MIN: "10"
       DATA_SECRET_CRYPTOGRAPHY_KEY: ${DATA_SECRET_CRYPTOGRAPHY_KEY}
       AI_AUDIO_GENERATION_ENDPOINT: ${AI_AUDIO_GENERATION_ENDPOINT}
       ACTIVATE_DISCADOR_MAILING: "${ACTIVATE_DISCADOR_MAILING}"
@@ -161,7 +155,6 @@ services:
       EF_AMI_DIALPLAN_EXTENSION_CONTEXT: ${EF_AMI_DIALPLAN_EXTENSION_CONTEXT}
       EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK: ${EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK}
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
-    # Asterisk está em host networking; alcança-se AMI/ARI via gateway do host.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -172,33 +165,28 @@ services:
     depends_on:
       pgbouncer:
         condition: service_started
-      # service_healthy (não service_started): garante que o entrypoint do Asterisk
-      # já copiou os configs para /etc/asterisk (volume compartilhado) e bootou
-      # antes do seed ler ep-routes.conf. service_started dispara cedo demais.
       asterisk:
         condition: service_healthy
       migrations:
         condition: service_completed_successfully
 
   api:
-    image: ${API_IMAGE}
+    image: ghcr.io/nncs-easyphone/easyphone-api:main
     build:
       context: ../easyphone-api
       dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}-api
+    container_name: easyfone-api
     restart: unless-stopped
     ports: []
     networks:
       - default
       - traefik-public
-    # Asterisk está em host networking; alcança-se AMI/ARI via gateway do host
-    # (VITE_ASTERISK_HOST=host.docker.internal no .env).
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      TZ: ${TZ}
+      TZ: UTC
       NODE_ENV: ${NODE_ENV}
-      PORT: "${API_PORT_CONTAINER}"
+      PORT: "7002"
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: https://app.${DOMAIN}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?pgbouncer=true
@@ -209,15 +197,15 @@ services:
       MAX_CAPTURE_GROUPS: "${MAX_CAPTURE_GROUPS}"
       VITE_EF_FILES_FOLDER_PATH: ${VITE_EF_FILES_FOLDER_PATH}
       VITE_ASTERISK_HOST: host.docker.internal
-      VITE_ASTERISK_ARI_PORT: "${VITE_ASTERISK_ARI_PORT}"
-      VITE_ASTERISK_AMI_PORT: "${VITE_ASTERISK_AMI_PORT}"
+      VITE_ASTERISK_ARI_PORT: "8088"
+      VITE_ASTERISK_AMI_PORT: "5038"
       VITE_ASTERISK_USERNAME: ${VITE_ASTERISK_USERNAME}
       VITE_ASTERISK_PASSWORD: ${VITE_ASTERISK_PASSWORD}
-      VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS: "${VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS}"
-      VITE_APP_NAME_ARI_ASTERISK: ${VITE_APP_NAME_ARI_ASTERISK}
-      PRISMA_LOGS_OFF: "${PRISMA_LOGS_OFF}"
-      PG_POOL_MAX: "${PG_POOL_MAX}"
-      PG_POOL_MIN: "${PG_POOL_MIN}"
+      VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS: "15000"
+      VITE_APP_NAME_ARI_ASTERISK: easyphone
+      PRISMA_LOGS_OFF: "true"
+      PG_POOL_MAX: "20"
+      PG_POOL_MIN: "10"
       DATA_SECRET_CRYPTOGRAPHY_KEY: ${DATA_SECRET_CRYPTOGRAPHY_KEY}
       AI_AUDIO_GENERATION_ENDPOINT: ${AI_AUDIO_GENERATION_ENDPOINT}
       ACTIVATE_DISCADOR_MAILING: "${ACTIVATE_DISCADOR_MAILING}"
@@ -230,7 +218,7 @@ services:
       - "traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
-      - "traefik.http.services.api.loadbalancer.server.port=${API_PORT_CONTAINER}"
+      - "traefik.http.services.api.loadbalancer.server.port=7002"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/ || exit 1"]
       interval: 10s
@@ -255,11 +243,11 @@ services:
         condition: service_completed_successfully
 
   web:
-    image: ${WEB_IMAGE}
+    image: ghcr.io/nncs-easyphone/easyphone-web:main
     build:
       context: ../easyphone-web
       dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}-web
+    container_name: easyfone-web
     restart: unless-stopped
     ports: []
     networks:
@@ -268,8 +256,8 @@ services:
     environment:
       PORT: "3000"
       VITE_API_URL: https://api.${DOMAIN}
-      VITE_API_DELAY: "${VITE_API_DELAY}"
-      VITE_ENABLE_API_DELAY: "${VITE_ENABLE_API_DELAY}"
+      VITE_API_DELAY: "0"
+      VITE_ENABLE_API_DELAY: "false"
       VITE_FORMAT_FILES_UPLOAD_MOH: ${VITE_FORMAT_FILES_UPLOAD_MOH}
       VITE_MAX_FILES_UPLOAD_MOH: "${VITE_MAX_FILES_UPLOAD_MOH}"
       VITE_MAX_FILE_SIZE_UPLOAD_MOH: "${VITE_MAX_FILE_SIZE_UPLOAD_MOH}"
@@ -300,4 +288,4 @@ volumes:
 
 networks:
   traefik-public:
-    name: ${COMPOSE_PROJECT_NAME}-traefik-public
+    name: easyfone-traefik-public

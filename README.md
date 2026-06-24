@@ -17,25 +17,7 @@ git clone <URL_DO_REPOSITORIO> /opt/easyfone
 cd /opt/easyfone/easyphone-orquestrator
 ```
 
-## 2. Configure o ambiente
-
-```bash
-cp .env.example .env
-# Edite .env com suas credenciais e configurações
-nano .env
-```
-
-> **Importante:** Altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e as senhas do banco (`POSTGRES_PASSWORD`, `ASTERISK_DB_PASS`) para valores seguros.
-
-### Pré-requisito: Token GHCR
-
-As imagens da stack estão no GitHub Container Registry (`ghcr.io/nncs-easyphone/*`). Você precisa de um **Personal Access Token (PAT)** do GitHub com escopo `read:packages`:
-
-1. Acesse https://github.com/settings/tokens
-2. Gere um token clássico com escopo `read:packages`
-3. Guarde o token — o `init.sh` vai pedi-lo durante a execução
-
-## 3. Execute o init
+## 2. Execute o init
 
 ```bash
 sudo bash init.sh
@@ -45,11 +27,22 @@ O script interativamente:
 
 | Etapa | O que faz |
 |---|---|
-| **1/5** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
-| **2/5** | Autentica no ghcr.io (valida o token com um pull real) |
-| **3/5** | Instala iptables e iptables-persistent |
-| **4/5** | Aplica as regras de firewall (chain dedicada `EASYFONE_INPUT`) |
-| **5/5** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
+| **0/6** | Configura o arquivo `.env` com perguntas sobre domínio, email Let's Encrypt, Postgres, API, Asterisk e Firebase |
+| **1/6** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
+| **2/6** | Autentica no ghcr.io (valida o token com um pull real) |
+| **3/6** | Instala iptables e iptables-persistent |
+| **4/6** | Aplica as regras de firewall (chain dedicada `EASYFONE_INPUT`) |
+| **5/6** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
+
+> **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e as senhas do banco (`POSTGRES_PASSWORD`, `ASTERISK_DB_PASS`) para valores seguros — o script já sugere valores aleatórios.
+
+### Pré-requisito: Token GHCR
+
+As imagens da stack estão no GitHub Container Registry (`ghcr.io/nncs-easyphone/*`). Você precisa de um **Personal Access Token (PAT)** do GitHub com escopo `read:packages`:
+
+1. Acesse https://github.com/settings/tokens
+2. Gere um token clássico com escopo `read:packages`
+3. Guarde o token — o `init.sh` vai pedi-lo durante a execução
 
 Cada instalação exibe o log completo dentro de uma caixa `┌─ ─┐`.  
 O log completo da execução fica salvo em **`/tmp/easyfone-orquestrator-install.log`**.
@@ -57,7 +50,7 @@ O log completo da execução fica salvo em **`/tmp/easyfone-orquestrator-install
 > Se o Docker já estiver instalado, o script pergunta se deseja reinstalar.  
 > O `systemctl enable docker` é executado **sempre** que o Docker está presente.
 
-## 4. Suba a stack
+## 3. Suba a stack
 
 ```bash
 bash run.sh
@@ -80,7 +73,7 @@ A stack inclui:
 | **PgBouncer** | — | Pool de conexões (acesso interno apenas) |
 | **Asterisk** | SIP `5060/udp`, RTP `10000-20000/udp` | PBX (AMI/ARI internos, acessados só pela API) |
 
-## 5. Acesse
+## 4. Acesse
 
 ```
 https://app.exemplo.com
@@ -126,7 +119,7 @@ docker compose exec traefik traefik healthcheck
 
 ### `docker compose pull` falha com "unauthorized"
 
-O token ghcr expirou ou não tem permissão. Reexecute o `sudo bash init.sh` e faça login novamente na etapa 2/5.
+O token ghcr expirou ou não tem permissão. Reexecute o `sudo bash init.sh` e faça login novamente na etapa 2/6.
 
 ### Portas não respondendo
 
