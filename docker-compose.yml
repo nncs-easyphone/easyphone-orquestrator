@@ -231,7 +231,7 @@ services:
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.services.api.loadbalancer.server.port=7002"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$$PORT/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -281,7 +281,7 @@ services:
       - "traefik.http.routers.web.tls.certresolver=letsencrypt"
       - "traefik.http.services.web.loadbalancer.server.port=3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$$PORT/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
