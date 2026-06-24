@@ -198,7 +198,7 @@ services:
       NODE_ENV: ${NODE_ENV}
       PORT: "7002"
       JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGIN: https://app.${DOMAIN}
+      CORS_ORIGIN: https://${DOMAIN}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?pgbouncer=true
       DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       MUSIC_ON_HOLD_FOLDER_PATH: ${MUSIC_ON_HOLD_FOLDER_PATH}
@@ -276,7 +276,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easyfone-traefik-public"
-      - "traefik.http.routers.web.rule=Host(`app.${DOMAIN}`)"
+      - "traefik.http.routers.web.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.web.entrypoints=websecure"
       - "traefik.http.routers.web.tls.certresolver=letsencrypt"
       - "traefik.http.services.web.loadbalancer.server.port=3000"
