@@ -43,7 +43,9 @@ echo
 # - 80  (HTTP)    — Traefik (redireciona para HTTPS + Let's Encrypt)
 # - 443 (HTTPS)   — Traefik (frontend app.exemplo.com + API api.exemplo.com)
 # - 5061 (SIP TLS) — ramais com SIP criptografado
-# AMI (5038) e ARI (8088) são internos — a API os acessa via host.docker.internal.
+# AMI (5038) e ARI (8088) são internos: a api/seed os acessam via host.docker.internal
+# (= IP do gateway da bridge), tráfego que chega na chain INPUT. São liberados na seção
+# dedicada abaixo APENAS para a subnet dos containers, sem expô-los à internet.
 # PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
 PORTS_TCP=(22 80 443 5061)
 PORTS_UDP=(5060)
@@ -121,6 +123,19 @@ done
 info "Liberando faixa de RTP (UDP ${RTP_UDP_RANGE}) na EASYFONE_INPUT…"
 iptables -A EASYFONE_INPUT -p udp --dport "$RTP_UDP_RANGE" -j ACCEPT
 echo -e "  ${GREEN}✓${NC} UDP/${RTP_UDP_RANGE} (RTP)"
+
+# ── 9b. Serviços internos AMI/ARI — acessíveis APENAS pela rede dos containers ──
+#     O Asterisk roda em host networking; api/seed o alcançam via host.docker.internal
+#     (= IP do gateway da bridge). Esse tráfego chega na chain INPUT (entrega local),
+#     então PRECISA ser liberado aqui — mas só a partir da subnet dos containers,
+#     para NÃO expor AMI/ARI à internet.
+DOCKER_SUBNET="172.16.0.0/12"     # faixa padrão das redes bridge do Docker (172.17–172.31)
+PORTS_INTERNAL_TCP=(5038 8088)    # AMI, ARI
+info "Liberando AMI/ARI (TCP) apenas da subnet Docker ${DOCKER_SUBNET}…"
+for port in "${PORTS_INTERNAL_TCP[@]}"; do
+  iptables -A EASYFONE_INPUT -s "$DOCKER_SUBNET" -p tcp --dport "$port" -j ACCEPT
+  echo -e "  ${GREEN}✓${NC} TCP/$port (interno Docker)"
+done
 
 # ── 10. Persistência ─────────────────────────────────────────────────
 echo
