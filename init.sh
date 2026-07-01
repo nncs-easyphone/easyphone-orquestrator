@@ -51,9 +51,25 @@ ask_value() {
 
 update_env() {
   local key="$1" value="$2" file="$3"
-  local escaped
-  escaped=$(printf '%s\n' "$value" | sed 's/[\/&]/\\&/g')
-  sed -i "s/^${key}=.*/${key}=${escaped}/" "$file"
+  awk -v key="$key" -v val="$value" '
+    BEGIN { replaced = 0 }
+    index($0, key "=") == 1 { print key, val; replaced = 1; next }
+    { print }
+    END { if (!replaced) print key, val }
+  ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
+compact_json() {
+  local file="$1"
+  if command -v jq &>/dev/null; then
+    jq -c . "$file"
+  elif command -v python3 &>/dev/null; then
+    python3 -c "import json; print(json.dumps(json.load(open('$file'))))"
+  elif command -v node &>/dev/null; then
+    node -e "const d=require('fs').readFileSync('$file','utf-8'); console.log(JSON.stringify(JSON.parse(d)))"
+  else
+    tr -d '\n\t ' < "$file"
+  fi
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -181,13 +197,27 @@ else
   # ── Firebase ──
   if ask_yes "Configurar Firebase Service Account?"; then
     box_start "Configuração Firebase"
-    warn "Cole o JSON do Firebase Service Account (linha única) e pressione Enter:"
-    read -r FIREBASE_JSON
-    if [[ -n "$FIREBASE_JSON" ]]; then
-      update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "$FIREBASE_JSON" "$ENV_FILE"
-      ok "Firebase Service Account configurada."
+    if ask_yes "O arquivo service-account.json está no servidor?"; then
+      ask_value "Caminho do arquivo" "service-account.json" SA_PATH
+      if [[ -f "$SA_PATH" ]]; then
+        SA_JSON=$(compact_json "$SA_PATH")
+        update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "$SA_JSON" "$ENV_FILE"
+        ok "Firebase Service Account configurada via arquivo."
+      else
+        warn "Arquivo não encontrado em '$SA_PATH'."
+      fi
     else
-      warn "Nada foi colado — mantendo valor padrão."
+      warn "Cole o conteúdo COMPLETO do service-account.json e pressione Ctrl+D quando terminar:"
+      TMP_SA=$(mktemp)
+      cat > "$TMP_SA"
+      if [[ -s "$TMP_SA" ]]; then
+        SA_JSON=$(compact_json "$TMP_SA")
+        update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "$SA_JSON" "$ENV_FILE"
+        ok "Firebase Service Account configurada via colagem."
+      else
+        warn "Nada foi colado — mantendo valor padrão."
+      fi
+      rm -f "$TMP_SA"
     fi
     box_end
   else
