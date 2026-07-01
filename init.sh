@@ -184,7 +184,7 @@ else
     warn "Cole o JSON do Firebase Service Account (linha única) e pressione Enter:"
     read -r FIREBASE_JSON
     if [[ -n "$FIREBASE_JSON" ]]; then
-      update_env "FIREBASE_SERVICE_ACCOUNT" "$FIREBASE_JSON" "$ENV_FILE"
+      update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "$FIREBASE_JSON" "$ENV_FILE"
       ok "Firebase Service Account configurada."
     else
       warn "Nada foi colado — mantendo valor padrão."
