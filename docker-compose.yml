@@ -225,6 +225,7 @@ services:
       EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK: ${EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK}
       EASYPHONE_FIREBASE_SERVICE_ACCOUNT: '${EASYPHONE_FIREBASE_SERVICE_ACCOUNT}'
       EASYPHONE_LICENSE_CLIENT_ID: ${EASYPHONE_LICENSE_CLIENT_ID}
+      EASYPHONE_TRANSCRIBER_URL: http://transcriber:3335
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easyfone-traefik-public"
@@ -291,6 +292,28 @@ services:
     depends_on:
       api:
         condition: service_started
+
+  transcriber:
+    image: ghcr.io/nncs-easyphone/easyphone-transcriber:main
+    build:
+      context: ../easyphone-transcriber
+      dockerfile: Dockerfile
+    container_name: easyfone-transcriber
+    restart: unless-stopped
+    ports: []
+    networks:
+      - default
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL}
+      MAX_AUDIO_SIZE_MB: "100"
+      CORS_ORIGINS: ""
+      PORT: "3335"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3335/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
 volumes:
   pgdata:

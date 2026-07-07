@@ -224,6 +224,17 @@ else
     ok "Mantendo valor padrão do Firebase."
   fi
 
+  # ── Transcriber ──
+  if ask_yes "Configurar variáveis do Transcriber (Whisper STT)?"; then
+    box_start "Configuração Transcriber"
+    ask_value "Modelo Whisper (tiny/base/small/medium/large)" "large" WHISPER_MODEL
+    update_env "WHISPER_MODEL" "$WHISPER_MODEL" "$ENV_FILE"
+
+    box_end
+  else
+    ok "Mantendo valores padrão do Transcriber."
+  fi
+
   ok ".env configurado com sucesso!"
 fi
 
