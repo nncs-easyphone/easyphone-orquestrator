@@ -53,9 +53,9 @@ update_env() {
   local key="$1" value="$2" file="$3"
   awk -v key="$key" -v val="$value" '
     BEGIN { replaced = 0 }
-    index($0, key "=") == 1 { print key "=" val; replaced = 1; next }
+    index($0, key "=") == 1 { print key "=\47" val "\47"; replaced = 1; next }
     { print }
-    END { if (!replaced) print key "=" val }
+    END { if (!replaced) print key "=\47" val "\47" }
   ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 }
 
