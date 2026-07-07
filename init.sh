@@ -61,15 +61,10 @@ update_env() {
 
 compact_json() {
   local file="$1"
-  if command -v jq &>/dev/null; then
-    jq -c . "$file"
-  elif command -v python3 &>/dev/null; then
-    python3 -c "import json; print(json.dumps(json.load(open('$file'))))"
-  elif command -v node &>/dev/null; then
-    node -e "const d=require('fs').readFileSync('$file','utf-8'); console.log(JSON.stringify(JSON.parse(d)))"
-  else
-    tr -d '\n\t' < "$file"
-  fi
+  jq -c . "$file" 2>/dev/null ||
+  python3 -c "import json; print(json.dumps(json.load(open('$file'))))" 2>/dev/null ||
+  node -e "const d=require('fs').readFileSync('$file','utf-8'); console.log(JSON.stringify(JSON.parse(d)))" 2>/dev/null ||
+  tr -d '\n\t' < "$file"
 }
 
 # ─────────────────────────────────────────────────────────────────────
