@@ -59,31 +59,6 @@ update_env() {
   ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 }
 
-compact_json() {
-  local file="$1" out
-
-  out=$(jq -c . "$file" 2>/dev/null) && { echo "$out"; return; }
-
-  out=$(python3 - "$file" 2>/dev/null << 'PYEOF'
-import re, sys
-
-with open(sys.argv[1]) as f:
-    content = f.read()
-
-m = re.search(r'"private_key"\s*:\s*"([\s\S]*?)"(?=\s*,|\s*\})', content)
-if m:
-    pk = m.group(1)
-    pk = pk.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
-    content = content[:m.start(1)] + pk + content[m.end(1):]
-
-content = content.replace('\r\n', '').replace('\n', '').replace('\r', '')
-sys.stdout.write(content)
-PYEOF
-) && { echo "$out"; return; }
-
-  tr -d '\n\t\r' < "$file"
-}
-
 # ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
 # ─────────────────────────────────────────────────────────────────────
@@ -209,28 +184,10 @@ else
   # ── Firebase ──
   if ask_yes "Configurar Firebase Service Account?"; then
     box_start "Configuração Firebase"
-    if ask_yes "O arquivo service-account.json está no servidor?"; then
-      ask_value "Caminho do arquivo" "service-account.json" SA_PATH
-      if [[ -f "$SA_PATH" ]]; then
-        SA_JSON=$(compact_json "$SA_PATH")
-        update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "$SA_JSON" "$ENV_FILE"
-        ok "Firebase Service Account configurada via arquivo."
-      else
-        warn "Arquivo não encontrado em '$SA_PATH'."
-      fi
-    else
-      warn "Cole o conteúdo COMPLETO do service-account.json e pressione Ctrl+D quando terminar:"
-      TMP_SA=$(mktemp)
-      cat > "$TMP_SA"
-      if [[ -s "$TMP_SA" ]]; then
-        SA_JSON=$(compact_json "$TMP_SA")
-        update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "$SA_JSON" "$ENV_FILE"
-        ok "Firebase Service Account configurada via colagem."
-      else
-        warn "Nada foi colado — mantendo valor padrão."
-      fi
-      rm -f "$TMP_SA"
-    fi
+    warn "O JSON precisa estar em linha única (sem quebras de linha)."
+    ask_value "JSON do Firebase Service Account (linha única)" "$(grep '^EASYPHONE_FIREBASE_SERVICE_ACCOUNT=' "$ENV_EXAMPLE" | head -1 | cut -d= -f2-)" SA_JSON
+    update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "$SA_JSON" "$ENV_FILE"
+    ok "Firebase Service Account configurada."
     box_end
   else
     ok "Mantendo valor padrão do Firebase."
