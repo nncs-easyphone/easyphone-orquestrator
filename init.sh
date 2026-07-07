@@ -60,11 +60,28 @@ update_env() {
 }
 
 compact_json() {
-  local file="$1"
-  jq -c . "$file" 2>/dev/null ||
-  python3 -c "import json; print(json.dumps(json.load(open('$file'))))" 2>/dev/null ||
-  node -e "const d=require('fs').readFileSync('$file','utf-8'); console.log(JSON.stringify(JSON.parse(d)))" 2>/dev/null ||
-  tr -d '\n\t' < "$file"
+  local file="$1" out
+
+  out=$(jq -c . "$file" 2>/dev/null) && { echo "$out"; return; }
+
+  out=$(python3 - "$file" 2>/dev/null << 'PYEOF'
+import re, sys
+
+with open(sys.argv[1]) as f:
+    content = f.read()
+
+m = re.search(r'"private_key"\s*:\s*"([\s\S]*?)"(?=\s*,|\s*\})', content)
+if m:
+    pk = m.group(1)
+    pk = pk.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
+    content = content[:m.start(1)] + pk + content[m.end(1):]
+
+content = content.replace('\r\n', '').replace('\n', '').replace('\r', '')
+sys.stdout.write(content)
+PYEOF
+) && { echo "$out"; return; }
+
+  tr -d '\n\t\r' < "$file"
 }
 
 # ─────────────────────────────────────────────────────────────────────
