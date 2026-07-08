@@ -181,18 +181,6 @@ else
     ok "Mantendo valores padrão do Asterisk."
   fi
 
-  # ── Firebase ──
-  if ask_yes "Configurar Firebase Service Account?"; then
-    box_start "Configuração Firebase"
-    warn "O JSON precisa estar em linha única (sem quebras de linha)."
-    ask_value "JSON do Firebase Service Account (linha única)" "$(grep '^EASYPHONE_FIREBASE_SERVICE_ACCOUNT=' "$ENV_EXAMPLE" | head -1 | cut -d= -f2-)" SA_JSON
-    update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "$SA_JSON" "$ENV_FILE"
-    ok "Firebase Service Account configurada."
-    box_end
-  else
-    ok "Mantendo valor padrão do Firebase."
-  fi
-
   # ── Transcriber ──
   if ask_yes "Configurar variáveis do Transcriber (Whisper STT)?"; then
     box_start "Configuração Transcriber"
@@ -487,5 +475,17 @@ if [[ -s "$LOGFILE" ]]; then
 else
   echo "  (log vazio)"
 fi
+echo
+echo
+echo -e "${BOLD}${YELLOW}═══════════════════  ATENÇÃO  ═══════════════════${NC}"
+echo
+echo -e "  ${YELLOW}⚠${NC} O Firebase Service Account ${BOLD}não${NC} foi configurado neste script."
+echo -e "  Para funcionar corretamente, edite o arquivo ${BOLD}.env${NC} e"
+echo -e "  preencha a variável ${BOLD}EASYPHONE_FIREBASE_SERVICE_ACCOUNT${NC}"
+echo -e "  com o JSON da sua conta de serviço (em linha única)."
+echo
+echo -e "  ${BOLD}Exemplo:${NC}"
+echo -e "    ${BLUE}▶${NC} Use o script auxiliar: ${BOLD}bash test-sa.sh '{\"type\":...}'${NC}"
+echo -e "    ${BLUE}▶${NC} Ou edite manualmente:  ${BOLD}nano .env${NC}"
 echo
 echo -e "${GREEN}${BOLD}✓ Init concluído com sucesso.${NC}"
