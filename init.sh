@@ -181,16 +181,9 @@ else
     ok "Mantendo valores padrão do Asterisk."
   fi
 
-  # ── Transcriber ──
-  if ask_yes "Configurar variáveis do Transcriber (Whisper STT)?"; then
-    box_start "Configuração Transcriber"
-    ask_value "Modelo Whisper (tiny/base/small/medium/large)" "large" WHISPER_MODEL
-    update_env "WHISPER_MODEL" "$WHISPER_MODEL" "$ENV_FILE"
-
-    box_end
-  else
-    ok "Mantendo valores padrão do Transcriber."
-  fi
+  # ── Firebase Service Account ──
+  update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "" "$ENV_FILE"
+  ok "Firebase Service Account definido como vazio — edite manualmente no .env."
 
   ok ".env configurado com sucesso!"
 fi
@@ -374,10 +367,8 @@ else
       box_end
     fi
   fi
-fi
 
 divider
-
 # ─────────────────────────────────────────────────────────────────────
 #  4. FIREWALL RULES
 # ─────────────────────────────────────────────────────────────────────
@@ -432,15 +423,6 @@ if docker compose version &>/dev/null; then
     box_end
   fi
 
-  if ask_no "Deseja subir a stack agora (docker compose up -d)?"; then
-    info "Subindo serviços…"
-    docker compose up -d
-    ok "Stack EasyFone iniciada."
-    echo
-    echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com}  |  https://api.${DOMAIN:-exemplo.com}"
-    echo -e "  ${GREEN}→${NC} Postgres:   localhost:${PG_PORT_HOST:-7001}  (interno)"
-    echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  RTP 10000-20000/udp  (AMI/ARI internos)"
-  fi
 fi
 
 divider
@@ -479,13 +461,12 @@ echo
 echo
 echo -e "${BOLD}${YELLOW}═══════════════════  ATENÇÃO  ═══════════════════${NC}"
 echo
-echo -e "  ${YELLOW}⚠${NC} O Firebase Service Account ${BOLD}não${NC} foi configurado neste script."
+echo -e "  ${YELLOW}⚠${NC} O Firebase Service Account foi definido como ${BOLD}vazio${NC} neste script."
 echo -e "  Para funcionar corretamente, edite o arquivo ${BOLD}.env${NC} e"
 echo -e "  preencha a variável ${BOLD}EASYPHONE_FIREBASE_SERVICE_ACCOUNT${NC}"
 echo -e "  com o JSON da sua conta de serviço (em linha única)."
 echo
 echo -e "  ${BOLD}Exemplo:${NC}"
-echo -e "    ${BLUE}▶${NC} Use o script auxiliar: ${BOLD}bash test-sa.sh '{\"type\":...}'${NC}"
-echo -e "    ${BLUE}▶${NC} Ou edite manualmente:  ${BOLD}nano .env${NC}"
+echo -e "    ${BLUE}▶${NC} Edite manualmente:  ${BOLD}nano .env${NC}"
 echo
 echo -e "${GREEN}${BOLD}✓ Init concluído com sucesso.${NC}"
