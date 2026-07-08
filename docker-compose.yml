@@ -295,6 +295,7 @@ services:
 
   transcriber:
     image: ghcr.io/nncs-easyphone/easyphone-transcriber:main
+    cpus: 1.0
     build:
       context: ../easyphone-transcriber
       dockerfile: Dockerfile
