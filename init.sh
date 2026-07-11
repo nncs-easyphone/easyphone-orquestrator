@@ -191,6 +191,38 @@ else
   update_env "EASYPHONE_LICENSE_HARDWARE_ID" "$EASYPHONE_LICENSE_HARDWARE_ID" "$ENV_FILE"
   ok "License Hardware ID definido."
 
+  # ── Corporate Integration (Matriz/Unidade) ──
+  if ask_yes "Configurar integração corporativa (Matriz/Unidade)?"; then
+    box_start "Integração Corporativa"
+    echo -e "  A instalação é:"
+    echo -e "    ${BOLD}1${NC}) Matriz  (recebe dados das unidades)"
+    echo -e "    ${BOLD}2${NC}) Unidade (envia dados para a matriz)"
+    echo
+    local CORP_ROLE=""
+    while [[ "$CORP_ROLE" != "1" && "$CORP_ROLE" != "2" ]]; do
+      read -r -p "$(echo -e "${YELLOW}?${NC} Escolha 1 ou 2: ")" CORP_ROLE
+    done
+
+    if [[ "$CORP_ROLE" == "1" ]]; then
+      printf -v RANDOM_API_KEY '%s' \
+        "$(openssl rand -base64 32 2>/dev/null || echo 'minha-chave-super-secreta')"
+      ask_value "Chave para autorizar unidades (deixe vazio para gerar automática)" \
+        "$RANDOM_API_KEY" CORPORATE_ALLOW_API_KEY
+      update_env "CORPORATE_ALLOW_API_KEY" "$CORPORATE_ALLOW_API_KEY" "$ENV_FILE"
+      update_env "CORPORATE_API_KEY" "" "$ENV_FILE"
+      ok "Matriz configurada — CORPORTATE_ALLOW_API_KEY definida."
+    else
+      ask_value "Chave de API fornecida pela matriz para envio de dados" \
+        "" CORPORATE_API_KEY
+      update_env "CORPORATE_API_KEY" "$CORPORATE_API_KEY" "$ENV_FILE"
+      update_env "CORPORATE_ALLOW_API_KEY" "" "$ENV_FILE"
+      ok "Unidade configurada — CORPORTATE_API_KEY definida."
+    fi
+    box_end
+  else
+    ok "Integração corporativa não configurada."
+  fi
+
   ok ".env configurado com sucesso!"
 fi
 
