@@ -185,6 +185,12 @@ else
   update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "" "$ENV_FILE"
   ok "Firebase Service Account definido como vazio — edite manualmente no .env."
 
+  # ── License Hardware ID ──
+  MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
+  ask_value "Hardware ID da licença (opcional — default: machine-id)" "$MACHINE_ID" EASYPHONE_LICENSE_HARDWARE_ID
+  update_env "EASYPHONE_LICENSE_HARDWARE_ID" "$EASYPHONE_LICENSE_HARDWARE_ID" "$ENV_FILE"
+  ok "License Hardware ID definido."
+
   ok ".env configurado com sucesso!"
 fi
 
