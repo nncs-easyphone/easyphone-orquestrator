@@ -1,6 +1,7 @@
 {
   "cSpell.words": [
     "certificatesresolvers",
+    "certresolver",
     "cpus",
     "DIALPLAN",
     "easyfone",
@@ -9,6 +10,7 @@
     "healthcheck",
     "isready",
     "letsencrypt",
+    "loadbalancer",
     "nncs",
     "pgdata",
     "postgres",
