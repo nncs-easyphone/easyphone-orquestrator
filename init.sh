@@ -204,10 +204,8 @@ else
     done
 
     if [[ "$CORP_ROLE" == "1" ]]; then
-      printf -v RANDOM_API_KEY '%s' \
-        "$(openssl rand -base64 32 2>/dev/null || echo 'minha-chave-super-secreta')"
-      ask_value "Chave para autorizar unidades (deixe vazio para gerar automática)" \
-        "$RANDOM_API_KEY" CORPORATE_ALLOW_API_KEY
+      ask_value "Chave para autorizar unidades" \
+        "" CORPORATE_ALLOW_API_KEY
       update_env "CORPORATE_ALLOW_API_KEY" "$CORPORATE_ALLOW_API_KEY" "$ENV_FILE"
       update_env "CORPORATE_API_KEY" "" "$ENV_FILE"
       ok "Matriz configurada — CORPORTATE_ALLOW_API_KEY definida."
