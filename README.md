@@ -96,9 +96,16 @@ Depois que a stack subir, dois passos na interface web. **Ambos são obrigatóri
 
 ### 5.1 Criar o transporte PJSIP `wss`
 
-Em **Transportes PJSIP → Novo**, crie um transporte com protocolo `wss`. A API preenche sozinha `bind=0.0.0.0:8089`, `method=tlsv1_2` e os caminhos de certificado, grava `dialplan/ep-pjsip-transports.conf` e recarrega o `res_pjsip`.
+Em **Transportes PJSIP → Novo**, crie um transporte com protocolo `wss`. A API preenche sozinha `bind=0.0.0.0:8089`, `method=tlsv1_2` e os caminhos de certificado, e grava `dialplan/ep-pjsip-transports.conf`.
 
-Sem essa linha não existe `[transport-wss]` e nenhum ramal WebRTC consegue registrar.
+Em seguida **reinicie o Asterisk** — este passo não é opcional:
+
+```bash
+docker compose restart asterisk
+docker exec easyfone-asterisk asterisk -rx 'pjsip show transports'   # transport-wss deve aparecer
+```
+
+A API executa `module reload res_pjsip` após gravar o arquivo, mas o reload do PJSIP recarrega endpoints, AORs e auths e **não cria transportes** — transporte novo só entra em memória com restart. Sem isso o `[transport-wss]` existe no arquivo e no banco, mas não no Asterisk, e nenhum ramal WebRTC registra.
 
 ### 5.2 Criar o ramal com tecnologia WebRTC
 
@@ -217,16 +224,65 @@ docker logs -f easyfone-asterisk
 
 Se o passo 3 falhar com 502, quase sempre é o firewall: a porta 8089 precisa estar liberada na chain `EASYFONE_INPUT` via interface de bridge. Reaplique com `sudo bash firewall-rules.sh`.
 
-### Coturn reiniciando em loop
+### STUN não responde
 
-Normal nos primeiros minutos: o Coturn precisa do certificado de `pbx.${DOMAIN}`, que só existe depois que o Traefik o emite e o `certs-dumper` o extrai.
+O STUN é UDP puro na 3478 — não depende de certificado, Traefik nem Asterisk. Rode na ordem; **a primeira coisa que falhar é a causa**:
+
+```bash
+# 1. DNS: se falhar aqui, explica STUN, certificado e WSS de uma vez só
+dig +short pbx.exemplo.com
+curl -4 -s ifconfig.me; echo          # tem que ser o mesmo IP
+
+# 2. O Coturn está escutando na 3478 do host?
+sudo ss -ulpn | grep 3478
+systemctl status coturn 2>/dev/null | head -3   # coturn do apt disputando a porta?
+
+# 3. O que o Coturn diz ao subir?
+docker logs easyfone-coturn --tail 80
+
+# 4. A config foi montada como ARQUIVO e não como diretório?
+#    Bind mount de caminho inexistente faz o Docker criar um diretório, e aí o
+#    Coturn sobe com defaults — sem realm e sem credenciais.
+docker exec easyfone-coturn ls -la /etc/coturn/turnserver.conf
+docker exec easyfone-coturn head -20 /etc/coturn/turnserver.conf
+
+# 5. STUN de dentro da VM (separa "problema do Coturn" de "problema de rede")
+docker exec easyfone-coturn turnutils_stunclient 127.0.0.1
+
+# 6. STUN de fora (outra máquina)
+turnutils_stunclient pbx.exemplo.com
+
+# 7. A regra de firewall existe e está contando pacotes?
+sudo iptables -L EASYFONE_INPUT -n -v --line-numbers | grep -E '3478|5349'
+```
+
+| Onde falha | Causa provável | Ação |
+|---|---|---|
+| 1 | DNS de `pbx` ausente ou apontando errado | Corrigir o registro A — é pré-requisito de tudo |
+| 2 sem bind | Porta tomada por um coturn do sistema | `sudo systemctl disable --now coturn` |
+| 4 mostra diretório | `init.sh` não foi reexecutado | `sudo bash init.sh && docker compose up -d` |
+| 5 falha | Config do Coturn | Ver o erro no passo 3 |
+| **5 OK, 6 falha** | **Rede** | Passo 7: regra presente com contador zerado ⇒ o bloqueio é do **provedor de nuvem**. Abrir 3478/UDP, 5349/TCP+UDP e 49152-65535/UDP no painel |
+| 7 sem a regra | Firewall não reaplicado | `sudo bash firewall-rules.sh` |
+
+O par 5/6 é o que decide entre Coturn e rede — se quiser encurtar, comece por ele.
+
+### TURNS (5349) não conecta, mas STUN/TURN funcionam
+
+Esperado até o certificado de `pbx.${DOMAIN}` existir. O Coturn **não** aborta sem certificado: loga `cannot start TLS and DTLS listeners` e segue servindo STUN e TURN na 3478.
 
 ```bash
 docker exec easyfone-certs-dumper ls -l /certs/pbx.exemplo.com/   # certificate.pem + privatekey.pem
 docker logs easyfone-coturn | grep -Ei 'realm|listener|TLS'
 ```
 
-Se persistir depois da emissão, confira se `coturn/turnserver.conf` foi gerado (`sudo bash init.sh` regenera).
+O Coturn lê o certificado **apenas no arranque**. Depois que os arquivos aparecerem, é preciso reiniciá-lo uma vez — e o mesmo vale a cada renovação do Let's Encrypt:
+
+```bash
+docker compose restart coturn
+```
+
+Se os arquivos não aparecerem, confira se `coturn/turnserver.conf` foi gerado (`sudo bash init.sh` regenera).
 
 ### Áudio só em um sentido / chamada cai após atender
 

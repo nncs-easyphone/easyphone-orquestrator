@@ -272,7 +272,11 @@ render_template() {
     -e "s|\${DOMAIN}|$(escape_sed_replacement "${DOMAIN:-exemplo.com}")|g" \
     -e "s|\${COTURN_USER}|$(escape_sed_replacement "${COTURN_USER:-easyphone}")|g" \
     -e "s|\${COTURN_PASS}|$(escape_sed_replacement "${COTURN_PASS:-easyphone}")|g" \
+    -e "s|\${COTURN_EXTERNAL_IP}|$(escape_sed_replacement "${COTURN_EXTERNAL_IP:-}")|g" \
     "$template" > "$output"
+  # Diretiva sem valor faz o Coturn recusar a config: remove `chave=` vazio.
+  # No caso do external-ip, cair fora deixa valer a autodetecção do CMD da imagem.
+  sed -i.bak -E '/^[a-z0-9-]+=[[:space:]]*$/d' "$output" && rm -f "${output}.bak"
   ok "${label} gerado em ${output}."
 }
 

@@ -126,9 +126,12 @@ services:
     container_name: easyfone-coturn
     restart: unless-stopped
     network_mode: host
-    # root para conseguir ler os certificados escritos pelo certs-dumper.
-    user: "0:0"
-    command: ["-c", "/etc/coturn/turnserver.conf"]
+    # Sem `command`: o CMD oficial da imagem já é
+    #   ["--log-file=stdout", "--external-ip=$(detect-external-ip)"]
+    # e o turnserver lê /etc/coturn/turnserver.conf automaticamente. Sobrescrever
+    # o command descartava a autodetecção do IP público.
+    # Sem `user`: a imagem roda como nobody:nogroup e o --post-hook do
+    # certs-dumper (chmod a+rX) já deixa os certificados legíveis.
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       - coturn_certs:/certs:ro
@@ -151,9 +154,6 @@ services:
       DB_NAME: ${ASTERISK_DB_NAME}
       DB_USER: ${ASTERISK_DB_USER}
       DB_PASS: ${ASTERISK_DB_PASS}
-      # STUN usado pelo Asterisk para descobrir seu endereço externo e publicá-lo
-      # como candidato ICE (rtp.conf). Vazio = sem stunaddr (IP público direto).
-      ASTERISK_STUN_ADDR: pbx.${DOMAIN}:3478
     healthcheck:
       test: ["CMD-SHELL", "asterisk -rx \"core waitfullybooted\" | grep -q \"fully booted\" || exit 1"]
       interval: 10s

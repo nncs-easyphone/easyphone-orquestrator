@@ -5,9 +5,10 @@
 listening-port=3478
 tls-listening-port=5349
 listening-ip=0.0.0.0
-# Descomente e informe o IP público se a VM estiver atrás de NAT 1:1
-# (cloud com IP elástico). Com IP público direto na interface, não é preciso.
-# external-ip=
+# IP público anunciado nos candidatos. Se COTURN_EXTERNAL_IP estiver vazio no
+# .env, o init.sh remove esta linha e vale a autodetecção do CMD da imagem
+# (--external-ip=$(detect-external-ip)).
+external-ip=${COTURN_EXTERNAL_IP}
 
 # ── Identidade ────────────────────────────────────────────────────────
 realm=pbx.${DOMAIN}
@@ -23,9 +24,12 @@ max-port=65535
 
 # ── TLS ───────────────────────────────────────────────────────────────
 # Certificado Let's Encrypt de pbx.${DOMAIN}, extraído do acme.json do Traefik
-# pelo serviço certs-dumper. Enquanto o certificado não for emitido, o Coturn
-# falha ao subir e o restart automático o traz de volta quando os arquivos
-# aparecerem.
+# pelo serviço certs-dumper.
+# Enquanto o certificado não existir, o Coturn NÃO aborta: loga
+# "cannot start TLS and DTLS listeners" e segue servindo STUN e TURN na 3478.
+# O TURNS (5349) só entra depois que o certificado aparecer — e como o Coturn
+# lê o certificado apenas no arranque, é preciso um
+# `docker compose restart coturn` após a primeira emissão (e a cada renovação).
 cert=/certs/pbx.${DOMAIN}/certificate.pem
 pkey=/certs/pbx.${DOMAIN}/privatekey.pem
 cipher-list="HIGH"
