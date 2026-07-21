@@ -10,6 +10,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_data:/etc/traefik
       - ./traefik/conf:/etc/traefik/conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - default          # FIX 1: adicionado para garantir alcance a api/web mesmo sem label
       - traefik-public
@@ -216,7 +218,7 @@ services:
       NODE_ENV: ${NODE_ENV}
       PORT: "7002"
       JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGIN: https://${DOMAIN}
+      CORS_ORIGIN: https://app.${DOMAIN}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?pgbouncer=true
       DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       MUSIC_ON_HOLD_FOLDER_PATH: ${MUSIC_ON_HOLD_FOLDER_PATH}
@@ -299,7 +301,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easyfone-traefik-public"
-      - "traefik.http.routers.web.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.web.rule=Host(`app.${DOMAIN}`)"
       - "traefik.http.routers.web.entrypoints=websecure"
       - "traefik.http.routers.web.tls.certresolver=letsencrypt"
       - "traefik.http.services.web.loadbalancer.server.port=3000"

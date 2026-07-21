@@ -3,7 +3,7 @@
 http:
   routers:
     asterisk-wss:
-      rule: "Host(`${DOMAIN}`) && PathPrefix(`/ws`)"
+      rule: "Host(`pbx.${DOMAIN}`)"
       entrypoints: websecure
       service: asterisk-wss
       tls: {}
@@ -11,7 +11,7 @@ http:
     asterisk-wss:
       loadBalancer:
         servers:
-          - url: "https://127.0.0.1:8089"
+          - url: "https://host.docker.internal:8089"
         serversTransport: skip-verify
   serversTransports:
     skip-verify:

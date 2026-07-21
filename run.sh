@@ -111,7 +111,7 @@ fi
 
 ok "Stack EasyFone iniciada."
 echo
-echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com}  /  https://api.${DOMAIN:-exemplo.com}"
+echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com} (web)  /  https://api.${DOMAIN:-exemplo.com} (api)  /  https://pbx.${DOMAIN:-exemplo.com} (wss)"
 echo -e "  ${GREEN}→${NC} Postgres:   localhost:${PG_PORT_HOST:-7001}  (interno)"
 echo -e "  ${GREEN}→${NC} PgBouncer:  localhost:${PGBOUNCER_PORT_HOST:-7003}  (pool, interno)"
 echo -e "  ${GREEN}→${NC} Coturn:     STUN 3478/udp  |  TURN 3478/tcp+udp  |  TURNS 5349/tcp+udp  |  Relay 49152-65535/udp"

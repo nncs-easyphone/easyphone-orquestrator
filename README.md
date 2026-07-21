@@ -66,7 +66,7 @@ A stack inclui:
 
 | Serviço | Portas Externas | Descrição |
 |---|---|---|
-| **Traefik** | `80/443` (HTTP/HTTPS) | Proxy reverso com SSL automático (Let's Encrypt) |
+| **Traefik** | `80/443` (HTTP/HTTPS) | Proxy reverso com SSL automático (Let's Encrypt) — rotas: `app.${DOMAIN}`, `api.${DOMAIN}`, `pbx.${DOMAIN}` |
 | **Web** | — | Interface gráfica em `https://app.exemplo.com` |
 | **API** | — | Backend REST em `https://api.exemplo.com` |
 | **Postgres** | — | Banco de dados (acesso interno apenas) |
@@ -147,6 +147,6 @@ sudo ss -tulpn | grep -E '5060|5038|8088|3478|5349'
 ### Certificado SSL não gerado
 
 O Traefik usa desafio TLS (porta 443). Certifique-se de que:
-1. O DNS de `app.exemplo.com` e `api.exemplo.com` aponte para o IP da VM
+1. O DNS de `app.exemplo.com`, `api.exemplo.com` e `pbx.exemplo.com` apontem para o IP da VM
 2. A porta 443 esteja liberada no firewall da VM e no provedor de nuvem
 3. O email `LETSENCRYPT_EMAIL` no `.env` esteja correto
