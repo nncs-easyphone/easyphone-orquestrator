@@ -9,6 +9,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_data:/etc/traefik
+      - ./traefik/conf:/etc/traefik/conf:ro
     networks:
       - default          # FIX 1: adicionado para garantir alcance a api/web mesmo sem label
       - traefik-public
@@ -16,6 +17,7 @@ services:
       - "--providers.docker=true"
       - "--providers.docker.network=easyfone-traefik-public"
       - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/etc/traefik/conf"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.websecure.address=:443"
@@ -95,6 +97,21 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: easyfone-coturn
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TURN_LISTENING_PORT=3478
+      - TURN_RELAY_PORT_RANGE=49152-65535
+      - TURN_REALM=${DOMAIN}
+      - TURN_USER=easyphone
+      - TURN_PASSWORD=${COTURN_PASS}
+      - TURN_EXTERNAL_IP=${DOMAIN}
+    cap_add:
+      - NET_ADMIN
 
   asterisk:
     image: ghcr.io/nncs-easyphone/easyphone-asterisk:main

@@ -123,6 +123,16 @@ else
 
   ask_value "Email para Let's Encrypt" "admin@exemplo.com" LETSENCRYPT_EMAIL
   update_env "LETSENCRYPT_EMAIL" "$LETSENCRYPT_EMAIL" "$ENV_FILE"
+
+  # Gera config do proxy WSS para o Traefik
+  TARGET_DIR="$(dirname "$(readlink -f "$0")")/traefik/conf"
+  WSS_TEMPLATE="${TARGET_DIR}/wss.yml.example"
+  WSS_FILE="${TARGET_DIR}/wss.yml"
+  if [[ -f "$WSS_TEMPLATE" ]]; then
+    mkdir -p "$TARGET_DIR"
+    sed "s/\${DOMAIN}/${DOMAIN}/g" "$WSS_TEMPLATE" > "$WSS_FILE"
+    ok "Proxy WSS gerado em ${WSS_FILE} para domínio ${DOMAIN}."
+  fi
   box_end
 
   # ── Postgres ──
@@ -155,6 +165,17 @@ else
     box_end
   else
     ok "Mantendo valores padrão da API."
+  fi
+
+  # ── Coturn ──
+  if ask_yes "Configurar variáveis do Coturn (STUN/TURN)?"; then
+    box_start "Configuração Coturn"
+    printf -v RANDOM_COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
+    ask_value "Senha do Coturn" "$RANDOM_COTURN_PASS" COTURN_PASS
+    update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
+    box_end
+  else
+    ok "Mantendo valores padrão do Coturn."
   fi
 
   # ── Asterisk ──

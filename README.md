@@ -1,6 +1,6 @@
 # EasyFone Orchestrator
 
-Provisionamento e inicialização da stack EasyFone (Postgres, PgBouncer, API, Web, Asterisk) em uma VM vazia.
+Provisionamento e inicialização da stack EasyFone (Postgres, PgBouncer, API, Web, Asterisk, Coturn) em uma VM vazia.
 
 ## Requisitos
 
@@ -71,7 +71,8 @@ A stack inclui:
 | **API** | — | Backend REST em `https://api.exemplo.com` |
 | **Postgres** | — | Banco de dados (acesso interno apenas) |
 | **PgBouncer** | — | Pool de conexões (acesso interno apenas) |
-| **Asterisk** | SIP `5060/udp`, RTP `10000-20000/udp` | PBX (AMI/ARI internos, acessados só pela API) |
+| **Coturn** | STUN `3478/udp`, TURN `3478/tcp+udp`, TURNS `5349/tcp+udp`, relay `49152-65535/udp` | STUN/TURN para WebRTC (NAT traversal) |
+| **Asterisk** | SIP `5060/udp`, SIP TLS `5061/tcp`, RTP `10000-20000/udp`, WSS `8089/tcp` | PBX (AMI/ARI internos, acessados só pela API) |
 
 ## 4. Acesse
 
@@ -137,10 +138,10 @@ sudo bash firewall-rules.sh
 
 ### Container Asterisk não sobe
 
-O Asterisk usa `network_mode: host`. Verifique se as portas (5060, 5038, 8088, 10000-20000) não estão ocupadas:
+O Asterisk e o Coturn usam `network_mode: host`. Verifique se as portas não estão ocupadas:
 
 ```bash
-sudo ss -tulpn | grep -E '5060|5038|8088'
+sudo ss -tulpn | grep -E '5060|5038|8088|3478|5349'
 ```
 
 ### Certificado SSL não gerado

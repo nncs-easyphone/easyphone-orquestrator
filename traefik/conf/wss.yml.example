@@ -1,0 +1,18 @@
+# WSS Proxy — Asterisk WebRTC
+# GERADO AUTOMATICAMENTE pelo init.sh. Não editar manualmente.
+http:
+  routers:
+    asterisk-wss:
+      rule: "Host(`${DOMAIN}`) && PathPrefix(`/ws`)"
+      entrypoints: websecure
+      service: asterisk-wss
+      tls: {}
+  services:
+    asterisk-wss:
+      loadBalancer:
+        servers:
+          - url: "https://127.0.0.1:8089"
+        serversTransport: skip-verify
+  serversTransports:
+    skip-verify:
+      insecureSkipVerify: true

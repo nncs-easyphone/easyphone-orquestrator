@@ -114,7 +114,8 @@ echo
 echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com}  /  https://api.${DOMAIN:-exemplo.com}"
 echo -e "  ${GREEN}→${NC} Postgres:   localhost:${PG_PORT_HOST:-7001}  (interno)"
 echo -e "  ${GREEN}→${NC} PgBouncer:  localhost:${PGBOUNCER_PORT_HOST:-7003}  (pool, interno)"
-echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  RTP 10000-20000/udp (AMI/ARI internos)"
+echo -e "  ${GREEN}→${NC} Coturn:     STUN 3478/udp  |  TURN 3478/tcp+udp  |  TURNS 5349/tcp+udp  |  Relay 49152-65535/udp"
+echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  SIP TLS 5061/tcp  |  RTP 10000-20000/udp (AMI/ARI internos)"
 echo -e "  ${GREEN}→${NC} Transcriber: interno (Whisper STT, porta 3335)"
 echo
 echo -e "  ${BOLD}Arquivo de log:${NC} $LOGFILE"

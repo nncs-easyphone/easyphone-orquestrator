@@ -43,12 +43,13 @@ echo
 # - 80  (HTTP)    — Traefik (redireciona para HTTPS + Let's Encrypt)
 # - 443 (HTTPS)   — Traefik (frontend app.exemplo.com + API api.exemplo.com)
 # - 5061 (SIP TLS) — ramais com SIP criptografado
+# - 3478 (STUN)   — Coturn STUN
 # AMI (5038) e ARI (8088) são internos: a api/seed os acessam via host.docker.internal,
 # tráfego que chega na chain INPUT pela interface de bridge do Docker. São liberados na
 # seção dedicada abaixo APENAS via interface de bridge (-i br+), sem expô-los à internet.
 # PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
-PORTS_TCP=(22 80 443 5061)
-PORTS_UDP=(5060)
+PORTS_TCP=(22 80 443 5061 3478)
+PORTS_UDP=(5060 3478)
 
 # Faixa de RTP (mídia/áudio das chamadas) — DEVE casar com rtp.conf (rtpstart/rtpend).
 # Necessária externamente para áudio bidirecional das ligações.
@@ -123,6 +124,11 @@ done
 info "Liberando faixa de RTP (UDP ${RTP_UDP_RANGE}) na EASYFONE_INPUT…"
 iptables -A EASYFONE_INPUT -p udp --dport "$RTP_UDP_RANGE" -j ACCEPT
 echo -e "  ${GREEN}✓${NC} UDP/${RTP_UDP_RANGE} (RTP)"
+
+# ── 9a. Faixa de relay Coturn (mídia TURN) ──────────────────────────
+info "Liberando faixa de relay Coturn (UDP 49152-65535) na EASYFONE_INPUT…"
+iptables -A EASYFONE_INPUT -p udp --dport 49152:65535 -j ACCEPT
+echo -e "  ${GREEN}✓${NC} UDP/49152-65535 (Coturn relay)"
 
 # ── 9b. Serviços internos AMI/ARI — acessíveis APENAS pela rede dos containers ──
 #     O Asterisk roda em host networking; api/seed o alcançam via host.docker.internal.
