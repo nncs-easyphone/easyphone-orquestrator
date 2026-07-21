@@ -1,18 +1,36 @@
 # WSS Proxy — Asterisk WebRTC
 # GERADO AUTOMATICAMENTE pelo init.sh. Não editar manualmente.
+#
+# O host pbx.${DOMAIN} inteiro é o endpoint do WebSocket SIP: o middleware
+# replacePath reescreve QUALQUER caminho para /ws, que é o único URI aceito pelo
+# res_pjsip_transport_websocket do Asterisk (fixo, não configurável). Assim o
+# cliente conecta em wss://pbx.${DOMAIN} sem informar caminho, e de quebra o
+# servidor HTTP do Asterisk (/ari, /httpstatus) não fica alcançável por aqui.
 http:
   routers:
     asterisk-wss:
       rule: "Host(`pbx.${DOMAIN}`)"
       entrypoints: websecure
+      middlewares:
+        - asterisk-ws-path@file
       service: asterisk-wss
-      tls: {}
+      # Sem certResolver o Traefik serviria o certificado default auto-assinado
+      # e o cliente SIP recusaria o handshake TLS.
+      tls:
+        certResolver: letsencrypt
+  middlewares:
+    asterisk-ws-path:
+      replacePath:
+        path: /ws
   services:
     asterisk-wss:
       loadBalancer:
+        # O Asterisk roda em network_mode: host; 8089 é o tlsbindaddr do http.conf.
         servers:
           - url: "https://host.docker.internal:8089"
-        serversTransport: skip-verify
+        serversTransport: skip-verify@file
   serversTransports:
+    # O certificado da 8089 é o self-signed gerado pelo entrypoint do Asterisk —
+    # o TLS público termina aqui no Traefik.
     skip-verify:
       insecureSkipVerify: true

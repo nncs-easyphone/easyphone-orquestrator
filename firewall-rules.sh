@@ -43,13 +43,15 @@ echo
 # - 80  (HTTP)    — Traefik (redireciona para HTTPS + Let's Encrypt)
 # - 443 (HTTPS)   — Traefik (frontend app.exemplo.com + API api.exemplo.com)
 # - 5061 (SIP TLS) — ramais com SIP criptografado
-# - 3478 (STUN)   — Coturn STUN
-# AMI (5038) e ARI (8088) são internos: a api/seed os acessam via host.docker.internal,
-# tráfego que chega na chain INPUT pela interface de bridge do Docker. São liberados na
-# seção dedicada abaixo APENAS via interface de bridge (-i br+), sem expô-los à internet.
+# - 3478 (STUN/TURN) — Coturn, UDP e TCP
+# - 5349 (TURNS)  — Coturn sobre TLS (redes que só liberam TLS)
+# AMI (5038), ARI (8088) e WSS (8089) são internos: a api/seed acessam AMI/ARI e o
+# Traefik acessa o WSS via host.docker.internal — tráfego que chega na chain INPUT
+# pela interface de bridge do Docker. São liberados na seção dedicada abaixo APENAS
+# via interface de bridge (-i br+), sem expô-los à internet.
 # PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
-PORTS_TCP=(22 80 443 5061 3478)
-PORTS_UDP=(5060 3478)
+PORTS_TCP=(22 80 443 5061 3478 5349)
+PORTS_UDP=(5060 3478 5349)
 
 # Faixa de RTP (mídia/áudio das chamadas) — DEVE casar com rtp.conf (rtpstart/rtpend).
 # Necessária externamente para áudio bidirecional das ligações.
@@ -130,14 +132,15 @@ info "Liberando faixa de relay Coturn (UDP 49152-65535) na EASYFONE_INPUT…"
 iptables -A EASYFONE_INPUT -p udp --dport 49152:65535 -j ACCEPT
 echo -e "  ${GREEN}✓${NC} UDP/49152-65535 (Coturn relay)"
 
-# ── 9b. Serviços internos AMI/ARI — acessíveis APENAS pela rede dos containers ──
-#     O Asterisk roda em host networking; api/seed o alcançam via host.docker.internal.
+# ── 9b. Serviços internos AMI/ARI/WSS — acessíveis APENAS pela rede dos containers ──
+#     O Asterisk roda em host networking; api/seed o alcançam via host.docker.internal,
+#     e o Traefik faz o mesmo para o WebSocket SIP na 8089 (proxy de wss://pbx.${DOMAIN}).
 #     Esse tráfego ENTRA no host pela interface de bridge da rede do container (br-<hash>)
 #     e chega na chain INPUT (entrega local). Casamos pela interface (-i br+) em vez de IP:
 #     cobre todas as redes bridge do Docker, sobrevive à recriação da rede e não depende de
-#     faixa de IP. NÃO expõe AMI/ARI à internet (só tráfego vindo das bridges Docker).
-PORTS_INTERNAL_TCP=(5038 8088)    # AMI, ARI
-info "Liberando AMI/ARI (TCP) apenas via interface de bridge do Docker (-i br+)…"
+#     faixa de IP. NÃO expõe esses serviços à internet (só tráfego vindo das bridges Docker).
+PORTS_INTERNAL_TCP=(5038 8088 8089)    # AMI, ARI, WSS (WebRTC)
+info "Liberando AMI/ARI/WSS (TCP) apenas via interface de bridge do Docker (-i br+)…"
 for port in "${PORTS_INTERNAL_TCP[@]}"; do
   iptables -A EASYFONE_INPUT -i br+ -p tcp --dport "$port" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} TCP/$port (interno Docker)"

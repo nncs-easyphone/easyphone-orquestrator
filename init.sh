@@ -124,15 +124,6 @@ else
   ask_value "Email para Let's Encrypt" "admin@exemplo.com" LETSENCRYPT_EMAIL
   update_env "LETSENCRYPT_EMAIL" "$LETSENCRYPT_EMAIL" "$ENV_FILE"
 
-  # Gera config do proxy WSS para o Traefik
-  TARGET_DIR="$(dirname "$(readlink -f "$0")")/traefik/conf"
-  WSS_TEMPLATE="${TARGET_DIR}/wss.yml.example"
-  WSS_FILE="${TARGET_DIR}/wss.yml"
-  if [[ -f "$WSS_TEMPLATE" ]]; then
-    mkdir -p "$TARGET_DIR"
-    sed "s/\${DOMAIN}/${DOMAIN}/g" "$WSS_TEMPLATE" > "$WSS_FILE"
-    ok "Proxy WSS gerado em ${WSS_FILE} para domínio ${DOMAIN}."
-  fi
   box_end
 
   # ── Postgres ──
@@ -170,6 +161,9 @@ else
   # ── Coturn ──
   if ask_yes "Configurar variáveis do Coturn (STUN/TURN)?"; then
     box_start "Configuração Coturn"
+    ask_value "Usuário do Coturn" "easyphone" COTURN_USER
+    update_env "COTURN_USER" "$COTURN_USER" "$ENV_FILE"
+
     printf -v RANDOM_COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
     ask_value "Senha do Coturn" "$RANDOM_COTURN_PASS" COTURN_PASS
     update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
@@ -251,6 +245,45 @@ if [[ -f "$ENV_FILE" ]]; then
   source "$ENV_FILE"
   set +a
 fi
+
+# ─────────────────────────────────────────────────────────────────────
+#  0b. ARQUIVOS GERADOS A PARTIR DO .ENV
+# ─────────────────────────────────────────────────────────────────────
+# Rodam SEMPRE (não só na primeira execução): instalações que já tinham .env
+# também precisam do proxy WSS e do turnserver.conf, e ambos precisam ser
+# regerados quando o domínio ou a senha do Coturn mudam.
+step "0b/6 — Configuração gerada (Traefik WSS + Coturn)"
+
+ROOT_DIR="$(dirname "$(readlink -f "$0")")"
+
+# Escapa o que o lado direito de um `sed s|…|…|` interpreta.
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'
+}
+
+render_template() {
+  local template="$1" output="$2" label="$3"
+  if [[ ! -f "$template" ]]; then
+    warn "Template não encontrado: $template — pulando ${label}."
+    return
+  fi
+  mkdir -p "$(dirname "$output")"
+  sed \
+    -e "s|\${DOMAIN}|$(escape_sed_replacement "${DOMAIN:-exemplo.com}")|g" \
+    -e "s|\${COTURN_USER}|$(escape_sed_replacement "${COTURN_USER:-easyphone}")|g" \
+    -e "s|\${COTURN_PASS}|$(escape_sed_replacement "${COTURN_PASS:-easyphone}")|g" \
+    "$template" > "$output"
+  ok "${label} gerado em ${output}."
+}
+
+box_start "Arquivos gerados"
+render_template "${ROOT_DIR}/traefik/conf/wss.yml.example" \
+                "${ROOT_DIR}/traefik/conf/wss.yml" \
+                "Proxy WSS do Traefik (pbx.${DOMAIN:-exemplo.com})"
+render_template "${ROOT_DIR}/coturn/turnserver.conf.example" \
+                "${ROOT_DIR}/coturn/turnserver.conf" \
+                "Config do Coturn"
+box_end
 
 divider
 

@@ -100,20 +100,42 @@ services:
       postgres:
         condition: service_healthy
 
+  # Extrai o certificado de pbx.${DOMAIN} do acme.json do Traefik para um volume
+  # que o Coturn lê (TURNS na 5349). O --watch reescreve os arquivos a cada
+  # renovação, sem intervenção manual.
+  certs-dumper:
+    image: ldez/traefik-certs-dumper:v2.10.0
+    container_name: easyfone-certs-dumper
+    restart: unless-stopped
+    command:
+      - "file"
+      - "--version=v2"
+      - "--watch"
+      - "--source=/traefik/acme.json"
+      - "--dest=/certs"
+      - "--domain-subdir"
+      - "--post-hook=chmod -R a+rX /certs"
+    volumes:
+      - traefik_data:/traefik:ro
+      - coturn_certs:/certs
+    depends_on:
+      - traefik
+
   coturn:
     image: coturn/coturn:latest
     container_name: easyfone-coturn
     restart: unless-stopped
     network_mode: host
-    environment:
-      - TURN_LISTENING_PORT=3478
-      - TURN_RELAY_PORT_RANGE=49152-65535
-      - TURN_REALM=${DOMAIN}
-      - TURN_USER=easyphone
-      - TURN_PASSWORD=${COTURN_PASS}
-      - TURN_EXTERNAL_IP=${DOMAIN}
+    # root para conseguir ler os certificados escritos pelo certs-dumper.
+    user: "0:0"
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - coturn_certs:/certs:ro
     cap_add:
       - NET_ADMIN
+    depends_on:
+      - certs-dumper
 
   asterisk:
     image: ghcr.io/nncs-easyphone/easyphone-asterisk:main
@@ -129,6 +151,9 @@ services:
       DB_NAME: ${ASTERISK_DB_NAME}
       DB_USER: ${ASTERISK_DB_USER}
       DB_PASS: ${ASTERISK_DB_PASS}
+      # STUN usado pelo Asterisk para descobrir seu endereço externo e publicá-lo
+      # como candidato ICE (rtp.conf). Vazio = sem stunaddr (IP público direto).
+      ASTERISK_STUN_ADDR: pbx.${DOMAIN}:3478
     healthcheck:
       test: ["CMD-SHELL", "asterisk -rx \"core waitfullybooted\" | grep -q \"fully booted\" || exit 1"]
       interval: 10s
@@ -317,6 +342,7 @@ services:
 
 volumes:
   pgdata:
+  coturn_certs:
   asterisk_config:
   asterisk_lib:
   asterisk_log:

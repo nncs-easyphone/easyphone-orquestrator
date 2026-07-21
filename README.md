@@ -8,7 +8,13 @@ Provisionamento e inicialização da stack EasyFone (Postgres, PgBouncer, API, W
 - **Arquitetura:** x86_64
 - **Mínimo:** 2 vCPU, 4 GB RAM
 - **Acesso root** via `sudo`
-- **Domínio ou IP público** apontado para a VM (para acessar a interface Web)
+- **Domínio público** apontado para a VM. Três subdomínios precisam resolver para o IP da VM **antes** do primeiro `docker compose up` (o Traefik emite os certificados via desafio TLS-ALPN na porta 443):
+
+| Subdomínio | Serviço |
+|---|---|
+| `app.${DOMAIN}` | Interface web |
+| `api.${DOMAIN}` | API REST |
+| `pbx.${DOMAIN}` | WebSocket SIP (WebRTC) e realm do Coturn |
 
 ## 1. Clone o repositório
 
@@ -27,7 +33,8 @@ O script interativamente:
 
 | Etapa | O que faz |
 |---|---|
-| **0/6** | Configura o arquivo `.env` com perguntas sobre domínio, email Let's Encrypt, Postgres, API, Asterisk e Firebase |
+| **0/6** | Configura o arquivo `.env` com perguntas sobre domínio, email Let's Encrypt, Postgres, API, Coturn, Asterisk e Firebase |
+| **0b/6** | Gera `traefik/conf/wss.yml` e `coturn/turnserver.conf` a partir dos templates `.example`, substituindo domínio e credenciais do `.env` |
 | **1/6** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
 | **2/6** | Autentica no ghcr.io (valida o token com um pull real) |
 | **3/6** | Instala iptables e iptables-persistent |
@@ -71,14 +78,41 @@ A stack inclui:
 | **API** | — | Backend REST em `https://api.exemplo.com` |
 | **Postgres** | — | Banco de dados (acesso interno apenas) |
 | **PgBouncer** | — | Pool de conexões (acesso interno apenas) |
+| **certs-dumper** | — | Extrai o certificado de `pbx.${DOMAIN}` do `acme.json` do Traefik para o Coturn usar no TURNS |
 | **Coturn** | STUN `3478/udp`, TURN `3478/tcp+udp`, TURNS `5349/tcp+udp`, relay `49152-65535/udp` | STUN/TURN para WebRTC (NAT traversal) |
-| **Asterisk** | SIP `5060/udp`, SIP TLS `5061/tcp`, RTP `10000-20000/udp`, WSS `8089/tcp` | PBX (AMI/ARI internos, acessados só pela API) |
+| **Asterisk** | SIP `5060/udp`, SIP TLS `5061/tcp`, RTP `10000-20000/udp` | PBX (AMI `5038`, ARI `8088` e WSS `8089` são internos — só acessíveis pela bridge do Docker) |
 
 ## 4. Acesse
 
 ```
 https://app.exemplo.com
 ```
+
+## 5. WebRTC — habilitar o softphone
+
+O softphone desktop (EasyVoice) fala SIP sobre WebSocket seguro em `wss://pbx.${DOMAIN}`. O Traefik termina o TLS e reescreve qualquer caminho para `/ws`, único URI aceito pelo Asterisk — por isso o cliente **não precisa informar caminho**.
+
+Depois que a stack subir, dois passos na interface web. **Ambos são obrigatórios e a falha em qualquer um deles é silenciosa** (o ramal simplesmente não registra):
+
+### 5.1 Criar o transporte PJSIP `wss`
+
+Em **Transportes PJSIP → Novo**, crie um transporte com protocolo `wss`. A API preenche sozinha `bind=0.0.0.0:8089`, `method=tlsv1_2` e os caminhos de certificado, grava `dialplan/ep-pjsip-transports.conf` e recarrega o `res_pjsip`.
+
+Sem essa linha não existe `[transport-wss]` e nenhum ramal WebRTC consegue registrar.
+
+### 5.2 Criar o ramal com tecnologia WebRTC
+
+Em **Ramais → Novo**, com tecnologia `web-rtc`. Três campos exigem atenção:
+
+| Campo | Valor | Por quê |
+|---|---|---|
+| **Redes** | `0.0.0.0/0` (ou a faixa da bridge Docker) | Como o WSS passa pelo Traefik, o Asterisk vê sempre o IP do container do proxy (`172.x`) como origem, nunca o IP real do ramal. O ramal é criado com `deny=0.0.0.0/0.0.0.0` + `permit=<redes>`; se a faixa do proxy não estiver liberada, o REGISTER toma **403**. A autenticação continua sendo feita por digest sobre TLS. |
+| **DTMF** | `info` | O softphone desktop envia DTMF via `INFO application/dtmf-relay`. |
+| **Codecs** | `opus, ulaw, alaw` | `opus` é o codec nativo do WebRTC; `ulaw`/`alaw` garantem interoperabilidade com troncos e ramais tradicionais. |
+
+### 5.3 Configurar o softphone
+
+No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protocolo `wss`; usuário e senha do ramal; e as credenciais TURN iguais a `COTURN_USER` / `COTURN_PASS` do `.env`.
 
 ## Arquivos do orquestrador
 
@@ -90,6 +124,8 @@ https://app.exemplo.com
 | `.env` | Configuração de ambiente (copie de `.env.example`) |
 | `.env.example` | Template do ambiente |
 | `docker-compose.yml` | Definição dos serviços |
+| `traefik/conf/wss.yml.example` | Template do proxy WSS (router `pbx.${DOMAIN}`) — o `.yml` é gerado pelo `init.sh` |
+| `coturn/turnserver.conf.example` | Template do Coturn — o `.conf` é gerado pelo `init.sh` |
 
 ## Comandos úteis
 
@@ -150,3 +186,58 @@ O Traefik usa desafio TLS (porta 443). Certifique-se de que:
 1. O DNS de `app.exemplo.com`, `api.exemplo.com` e `pbx.exemplo.com` apontem para o IP da VM
 2. A porta 443 esteja liberada no firewall da VM e no provedor de nuvem
 3. O email `LETSENCRYPT_EMAIL` no `.env` esteja correto
+
+### Ramal WebRTC não registra
+
+Na ordem:
+
+```bash
+# 1. O proxy WSS foi gerado? (o init.sh cria a partir do .example)
+cat traefik/conf/wss.yml
+
+# 2. O certificado de pbx.${DOMAIN} foi emitido? Não pode ser "TRAEFIK DEFAULT CERT"
+openssl s_client -connect pbx.exemplo.com:443 -servername pbx.exemplo.com </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -dates
+
+# 3. O handshake WebSocket chega ao Asterisk? (101, não 404/502)
+curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" \
+     -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+     -H "Sec-WebSocket-Protocol: sip" https://pbx.exemplo.com/
+
+# 4. O transporte wss existe no Asterisk?
+docker exec easyfone-asterisk asterisk -rx 'pjsip show transports'
+
+# 5. O ramal tem os atributos WebRTC?
+docker exec easyfone-asterisk asterisk -rx 'pjsip show endpoint 1001' | grep -Ei 'webrtc|ice|avpf|dtls'
+
+# 6. SIP ao vivo — 403 aqui significa ACL: veja a seção 5.2 (campo Redes)
+docker exec easyfone-asterisk asterisk -rx 'pjsip set logger on'
+docker logs -f easyfone-asterisk
+```
+
+Se o passo 3 falhar com 502, quase sempre é o firewall: a porta 8089 precisa estar liberada na chain `EASYFONE_INPUT` via interface de bridge. Reaplique com `sudo bash firewall-rules.sh`.
+
+### Coturn reiniciando em loop
+
+Normal nos primeiros minutos: o Coturn precisa do certificado de `pbx.${DOMAIN}`, que só existe depois que o Traefik o emite e o `certs-dumper` o extrai.
+
+```bash
+docker exec easyfone-certs-dumper ls -l /certs/pbx.exemplo.com/   # certificate.pem + privatekey.pem
+docker logs easyfone-coturn | grep -Ei 'realm|listener|TLS'
+```
+
+Se persistir depois da emissão, confira se `coturn/turnserver.conf` foi gerado (`sudo bash init.sh` regenera).
+
+### Áudio só em um sentido / chamada cai após atender
+
+Problema de mídia (ICE/RTP), não de sinalização:
+
+```bash
+# stunaddr deve apontar para o Coturn público, nunca 127.0.0.1
+docker exec easyfone-asterisk grep stunaddr /etc/asterisk/rtp.conf
+
+# TURN autenticando com as credenciais do .env
+turnutils_uclient -T -u easyphone -w "$COTURN_PASS" pbx.exemplo.com
+```
+
+Verifique também se a faixa de relay `49152-65535/udp` e a faixa de RTP `10000-20000/udp` estão liberadas no firewall do provedor de nuvem (além do da VM).

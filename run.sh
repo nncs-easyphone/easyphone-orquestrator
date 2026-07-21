@@ -71,10 +71,32 @@ set +a
 
 USE_BUILD="${USE_BUILD:-false}"
 
+cd "$(dirname "$(readlink -f "$0")")"
+
+# ─────────────────────────────────────────────────────────────────────
+#  ARQUIVOS GERADOS PELO INIT.SH
+# ─────────────────────────────────────────────────────────────────────
+# O compose faz bind mount de coturn/turnserver.conf. Se o arquivo não existir,
+# o Docker cria um DIRETÓRIO com esse nome e o Coturn falha com um erro obscuro —
+# por isso a checagem acontece antes de qualquer `up`.
+MISSING_GENERATED=()
+[[ -f "traefik/conf/wss.yml"      ]] || MISSING_GENERATED+=("traefik/conf/wss.yml")
+[[ -f "coturn/turnserver.conf"    ]] || MISSING_GENERATED+=("coturn/turnserver.conf")
+
+if [[ ${#MISSING_GENERATED[@]} -gt 0 ]]; then
+  error "Arquivos de configuração ausentes (gerados pelo init.sh a partir do .env):"
+  for f in "${MISSING_GENERATED[@]}"; do
+    echo "    - $f"
+  done
+  echo
+  echo "  Gere-os com:"
+  echo "    sudo bash init.sh"
+  exit 1
+fi
+
 # ─────────────────────────────────────────────────────────────────────
 #  SOBE A STACK
 # ─────────────────────────────────────────────────────────────────────
-cd "$(dirname "$(readlink -f "$0")")"
 
 if [[ "$USE_BUILD" == "true" ]]; then
   info "USE_BUILD=true  → build local dos Dockerfiles"
