@@ -64,7 +64,7 @@ update_env() {
 # ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
 # ─────────────────────────────────────────────────────────────────────
-LOGFILE="/tmp/easyfone-orquestrator-install.log"
+LOGFILE="/tmp/easyphone-orquestrator-install.log"
 : > "$LOGFILE"
 
 box_start() {
@@ -134,7 +134,7 @@ fi
 if $CONFIG_ENABLED; then
 
   box_start "Configuração Global"
-  ask_value "Domínio padrão (ex: easyfone.com.br)" "exemplo.com" DOMAIN
+  ask_value "Domínio padrão (ex: easyphone.com.br)" "exemplo.com" DOMAIN
   update_env "DOMAIN" "$DOMAIN" "$ENV_FILE"
 
   ask_value "Email para Let's Encrypt" "admin@exemplo.com" LETSENCRYPT_EMAIL
@@ -145,15 +145,21 @@ if $CONFIG_ENABLED; then
   # ── Postgres ──
   if ask_yes "Configurar variáveis do Postgres?"; then
     box_start "Configuração Postgres"
-    ask_value "Usuário do Postgres" "easyfone" POSTGRES_USER
+    ask_value "Usuário do Postgres" "easyphone" POSTGRES_USER
     update_env "POSTGRES_USER" "$POSTGRES_USER" "$ENV_FILE"
 
-    printf -v RANDOM_PG_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyfone')"
+    printf -v RANDOM_PG_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
     ask_value "Senha do Postgres" "$RANDOM_PG_PASS" POSTGRES_PASSWORD
     update_env "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" "$ENV_FILE"
 
-    ask_value "Banco padrão" "easyfone" POSTGRES_DB
+    ask_value "Banco padrão" "easyphone" POSTGRES_DB
     update_env "POSTGRES_DB" "$POSTGRES_DB" "$ENV_FILE"
+    box_end
+  elif $FIRST_RUN; then
+    box_start "Configuração Postgres"
+    printf -v POSTGRES_PASSWORD '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
+    update_env "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" "$ENV_FILE"
+    ok "Senha do Postgres gerada automaticamente."
     box_end
   else
     ok "Variáveis do Postgres mantidas como estão."
@@ -162,13 +168,21 @@ if $CONFIG_ENABLED; then
   # ── API ──
   if ask_yes "Configurar variáveis da API (JWT, crypto key)?"; then
     box_start "Configuração da API"
-    printf -v RANDOM_JWT '%s' "$(openssl rand -base64 32 2>/dev/null || echo 'easyfone-jwt-secret')"
+    printf -v RANDOM_JWT '%s' "$(openssl rand -base64 32 2>/dev/null || echo 'easyphone-jwt-secret')"
     ask_value "JWT Secret" "$RANDOM_JWT" JWT_SECRET
     update_env "JWT_SECRET" "$JWT_SECRET" "$ENV_FILE"
 
-    printf -v RANDOM_CRYPTO '%s' "$(openssl rand -base64 24 2>/dev/null || echo 'easyfone-crypto-key-32bytes!')"
+    printf -v RANDOM_CRYPTO '%s' "$(openssl rand -base64 24 2>/dev/null || echo 'easyphone-crypto-key-32bytes!')"
     ask_value "Data Secret Cryptography Key" "$RANDOM_CRYPTO" DATA_SECRET_CRYPTOGRAPHY_KEY
     update_env "DATA_SECRET_CRYPTOGRAPHY_KEY" "$DATA_SECRET_CRYPTOGRAPHY_KEY" "$ENV_FILE"
+    box_end
+  elif $FIRST_RUN; then
+    box_start "Configuração da API"
+    printf -v JWT_SECRET '%s' "$(openssl rand -base64 32 2>/dev/null || echo 'easyphone-jwt-secret')"
+    update_env "JWT_SECRET" "$JWT_SECRET" "$ENV_FILE"
+    printf -v DATA_SECRET_CRYPTOGRAPHY_KEY '%s' "$(openssl rand -base64 24 2>/dev/null || echo 'easyphone-crypto-key-32bytes!')"
+    update_env "DATA_SECRET_CRYPTOGRAPHY_KEY" "$DATA_SECRET_CRYPTOGRAPHY_KEY" "$ENV_FILE"
+    ok "JWT Secret e Cryptography Key gerados automaticamente."
     box_end
   else
     ok "Variáveis da API mantidas como estão."
@@ -184,6 +198,12 @@ if $CONFIG_ENABLED; then
     ask_value "Senha do Coturn" "$RANDOM_COTURN_PASS" COTURN_PASS
     update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
     box_end
+  elif $FIRST_RUN; then
+    box_start "Configuração Coturn"
+    printf -v COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
+    update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
+    ok "Senha do Coturn gerada automaticamente."
+    box_end
   else
     ok "Variáveis do Coturn mantidas como estão."
   fi
@@ -197,6 +217,12 @@ if $CONFIG_ENABLED; then
     printf -v RANDOM_AMI_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'test123')"
     ask_value "AMI Password" "$RANDOM_AMI_PASS" VITE_ASTERISK_PASSWORD
     update_env "VITE_ASTERISK_PASSWORD" "$VITE_ASTERISK_PASSWORD" "$ENV_FILE"
+    box_end
+  elif $FIRST_RUN; then
+    box_start "Configuração Asterisk"
+    printf -v VITE_ASTERISK_PASSWORD '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'test123')"
+    update_env "VITE_ASTERISK_PASSWORD" "$VITE_ASTERISK_PASSWORD" "$ENV_FILE"
+    ok "Senha AMI do Asterisk gerada automaticamente."
     box_end
   else
     ok "Variáveis do Asterisk mantidas como estão."

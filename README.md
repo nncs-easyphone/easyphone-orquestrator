@@ -41,7 +41,7 @@ O script interativamente:
 | **4/6** | Aplica as regras de firewall (chain dedicada `EASYFONE_INPUT`) |
 | **5/6** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
 
-> **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e as senhas do banco (`POSTGRES_PASSWORD`, `ASTERISK_DB_PASS`) para valores seguros — o script já sugere valores aleatórios.
+> **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
 
 ### Pré-requisito: Token GHCR
 
