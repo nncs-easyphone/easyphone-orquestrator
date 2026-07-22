@@ -43,7 +43,9 @@ ask_no() {
 }
 
 ask_value() {
-  local prompt="$1" default="$2" var_name="$3" ans
+  local prompt="$1" default="$2" var_name="$3" ans current
+  current="${!var_name:-}"
+  [[ -n "$current" ]] && default="$current"
   read -r -p "$(echo -e "${YELLOW}?${NC} ${prompt} [${default}]: ")" ans
   ans="${ans:-$default}"
   printf -v "$var_name" '%s' "$ans"
@@ -111,11 +113,25 @@ step "0/6 — Configuração de Ambiente (.env)"
 ENV_FILE="$(dirname "$(readlink -f "$0")")/.env"
 ENV_EXAMPLE="$(dirname "$(readlink -f "$0")")/.env.example"
 
+FIRST_RUN=false
+CONFIG_ENABLED=false
+
 if [[ -f "$ENV_FILE" ]]; then
-  ok "Arquivo .env já existe — pulando configuração."
+  if ask_no "Deseja atualizar as variáveis do .env?"; then
+    info "Carregando valores atuais do .env..."
+    set -a; source "$ENV_FILE"; set +a
+    CONFIG_ENABLED=true
+  else
+    ok "Arquivo .env já existe — pulando configuração."
+  fi
 else
   info "Criando .env a partir do .env.example..."
   cp "$ENV_EXAMPLE" "$ENV_FILE"
+  FIRST_RUN=true
+  CONFIG_ENABLED=true
+fi
+
+if $CONFIG_ENABLED; then
 
   box_start "Configuração Global"
   ask_value "Domínio padrão (ex: easyfone.com.br)" "exemplo.com" DOMAIN
@@ -140,7 +156,7 @@ else
     update_env "POSTGRES_DB" "$POSTGRES_DB" "$ENV_FILE"
     box_end
   else
-    ok "Mantendo valores padrão do Postgres."
+    ok "Variáveis do Postgres mantidas como estão."
   fi
 
   # ── API ──
@@ -155,7 +171,7 @@ else
     update_env "DATA_SECRET_CRYPTOGRAPHY_KEY" "$DATA_SECRET_CRYPTOGRAPHY_KEY" "$ENV_FILE"
     box_end
   else
-    ok "Mantendo valores padrão da API."
+    ok "Variáveis da API mantidas como estão."
   fi
 
   # ── Coturn ──
@@ -169,22 +185,12 @@ else
     update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
     box_end
   else
-    ok "Mantendo valores padrão do Coturn."
+    ok "Variáveis do Coturn mantidas como estão."
   fi
 
   # ── Asterisk ──
   if ask_yes "Configurar variáveis do Asterisk?"; then
     box_start "Configuração Asterisk"
-    ask_value "DB Name" "easyfone" ASTERISK_DB_NAME
-    update_env "ASTERISK_DB_NAME" "$ASTERISK_DB_NAME" "$ENV_FILE"
-
-    ask_value "DB User" "easyfone" ASTERISK_DB_USER
-    update_env "ASTERISK_DB_USER" "$ASTERISK_DB_USER" "$ENV_FILE"
-
-    printf -v RANDOM_DB_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyfone')"
-    ask_value "DB Password" "$RANDOM_DB_PASS" ASTERISK_DB_PASS
-    update_env "ASTERISK_DB_PASS" "$ASTERISK_DB_PASS" "$ENV_FILE"
-
     ask_value "AMI Username" "easyphone" VITE_ASTERISK_USERNAME
     update_env "VITE_ASTERISK_USERNAME" "$VITE_ASTERISK_USERNAME" "$ENV_FILE"
 
@@ -193,12 +199,16 @@ else
     update_env "VITE_ASTERISK_PASSWORD" "$VITE_ASTERISK_PASSWORD" "$ENV_FILE"
     box_end
   else
-    ok "Mantendo valores padrão do Asterisk."
+    ok "Variáveis do Asterisk mantidas como estão."
   fi
 
   # ── Firebase Service Account ──
-  update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "" "$ENV_FILE"
-  ok "Firebase Service Account definido como vazio — edite manualmente no .env."
+  if $FIRST_RUN; then
+    update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "" "$ENV_FILE"
+    ok "Firebase Service Account definido como vazio — edite manualmente no .env."
+  else
+    warn "Firebase Service Account não foi alterado. Edite manualmente no .env se necessário."
+  fi
 
   # ── License Hardware ID ──
   MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
