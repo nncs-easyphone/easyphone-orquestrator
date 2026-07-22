@@ -154,6 +154,12 @@ services:
       DB_NAME: ${ASTERISK_DB_NAME}
       DB_USER: ${ASTERISK_DB_USER}
       DB_PASS: ${ASTERISK_DB_PASS}
+      # Vazia (VM com IP público direto na interface): o entrypoint remove o
+      # stunaddr do rtp.conf. Um stunaddr sem resposta bloqueia ~3-8s a criação
+      # de CADA instância RTP (toda chamada, qualquer ramal). Se precisar de
+      # STUN, aponte para o Coturn público (ex.: pbx.dominio.com.br:3478) e
+      # confirme que responde antes.
+      ASTERISK_STUN_ADDR: ${ASTERISK_STUN_ADDR:-}
     healthcheck:
       test: ["CMD-SHELL", "asterisk -rx \"core waitfullybooted\" | grep -q \"fully booted\" || exit 1"]
       interval: 10s
