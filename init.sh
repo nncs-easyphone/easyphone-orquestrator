@@ -148,7 +148,7 @@ if $CONFIG_ENABLED; then
     ask_value "Usuário do Postgres" "easyphone" POSTGRES_USER
     update_env "POSTGRES_USER" "$POSTGRES_USER" "$ENV_FILE"
 
-    printf -v RANDOM_PG_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
+    printf -v RANDOM_PG_PASS '%s' "$(openssl rand -base64 18 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone')"
     ask_value "Senha do Postgres" "$RANDOM_PG_PASS" POSTGRES_PASSWORD
     update_env "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" "$ENV_FILE"
 
@@ -157,7 +157,7 @@ if $CONFIG_ENABLED; then
     box_end
   elif $FIRST_RUN; then
     box_start "Configuração Postgres"
-    printf -v POSTGRES_PASSWORD '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
+    printf -v POSTGRES_PASSWORD '%s' "$(openssl rand -base64 18 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone')"
     update_env "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" "$ENV_FILE"
     ok "Senha do Postgres gerada automaticamente."
     box_end
@@ -168,19 +168,19 @@ if $CONFIG_ENABLED; then
   # ── API ──
   if ask_yes "Configurar variáveis da API (JWT, crypto key)?"; then
     box_start "Configuração da API"
-    printf -v RANDOM_JWT '%s' "$(openssl rand -base64 32 2>/dev/null || echo 'easyphone-jwt-secret')"
+    printf -v RANDOM_JWT '%s' "$(openssl rand -base64 32 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone-jwt-secret')"
     ask_value "JWT Secret" "$RANDOM_JWT" JWT_SECRET
     update_env "JWT_SECRET" "$JWT_SECRET" "$ENV_FILE"
 
-    printf -v RANDOM_CRYPTO '%s' "$(openssl rand -base64 24 2>/dev/null || echo 'easyphone-crypto-key-32bytes!')"
+    printf -v RANDOM_CRYPTO '%s' "$(openssl rand -base64 24 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone-crypto-key-32bytes!')"
     ask_value "Data Secret Cryptography Key" "$RANDOM_CRYPTO" DATA_SECRET_CRYPTOGRAPHY_KEY
     update_env "DATA_SECRET_CRYPTOGRAPHY_KEY" "$DATA_SECRET_CRYPTOGRAPHY_KEY" "$ENV_FILE"
     box_end
   elif $FIRST_RUN; then
     box_start "Configuração da API"
-    printf -v JWT_SECRET '%s' "$(openssl rand -base64 32 2>/dev/null || echo 'easyphone-jwt-secret')"
+    printf -v JWT_SECRET '%s' "$(openssl rand -base64 32 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone-jwt-secret')"
     update_env "JWT_SECRET" "$JWT_SECRET" "$ENV_FILE"
-    printf -v DATA_SECRET_CRYPTOGRAPHY_KEY '%s' "$(openssl rand -base64 24 2>/dev/null || echo 'easyphone-crypto-key-32bytes!')"
+    printf -v DATA_SECRET_CRYPTOGRAPHY_KEY '%s' "$(openssl rand -base64 24 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone-crypto-key-32bytes!')"
     update_env "DATA_SECRET_CRYPTOGRAPHY_KEY" "$DATA_SECRET_CRYPTOGRAPHY_KEY" "$ENV_FILE"
     ok "JWT Secret e Cryptography Key gerados automaticamente."
     box_end
@@ -194,13 +194,13 @@ if $CONFIG_ENABLED; then
     ask_value "Usuário do Coturn" "easyphone" COTURN_USER
     update_env "COTURN_USER" "$COTURN_USER" "$ENV_FILE"
 
-    printf -v RANDOM_COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
+    printf -v RANDOM_COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone')"
     ask_value "Senha do Coturn" "$RANDOM_COTURN_PASS" COTURN_PASS
     update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
     box_end
   elif $FIRST_RUN; then
     box_start "Configuração Coturn"
-    printf -v COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'easyphone')"
+    printf -v COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone')"
     update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
     ok "Senha do Coturn gerada automaticamente."
     box_end
