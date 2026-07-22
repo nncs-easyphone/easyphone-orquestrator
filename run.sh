@@ -44,7 +44,7 @@ box_start() {
   local title="$1"
   local len=60
   local dashes
-  dashes=$(printf '─%.0s' $(seq 1 $((len - ${#title} - 2))))
+  dashes=$(printf '%*s' "$((len - ${#title} - 5))" '' | tr ' ' '─')
   echo -e "┌─ ${BOLD}${title}${NC} ${dashes}┐"
 }
 

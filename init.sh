@@ -69,7 +69,7 @@ box_start() {
   local title="$1"
   local len=60
   local dashes
-  dashes=$(printf '─%.0s' $(seq 1 $((len - ${#title} - 2))))
+  dashes=$(printf '%*s' "$((len - ${#title} - 5))" '' | tr ' ' '─')
   echo -e "┌─ ${BOLD}${title}${NC} ${dashes}┐"
 }
 
@@ -99,7 +99,7 @@ INSTALLED=()
 
 # Atualiza índice de pacotes uma única vez no início
 box_start "Atualização de pacotes"
-apt-get update 2>&1 | tee -a "$LOGFILE"
+apt-get update 2>&1 | tee -a "$LOGFILE" || { error "Falha ao atualizar índice de pacotes. Verifique a conexão."; exit 1; }
 ok "Índice de pacotes atualizado."
 box_end
 
@@ -213,7 +213,7 @@ else
     echo -e "    ${BOLD}1${NC}) Matriz  (recebe dados das unidades)"
     echo -e "    ${BOLD}2${NC}) Unidade (envia dados para a matriz)"
     echo
-    local CORP_ROLE=""
+    CORP_ROLE=""
     while [[ "$CORP_ROLE" != "1" && "$CORP_ROLE" != "2" ]]; do
       read -r -p "$(echo -e "${YELLOW}?${NC} Escolha 1 ou 2: ")" CORP_ROLE
     done
@@ -223,13 +223,13 @@ else
         "" CORPORATE_ALLOW_API_KEY
       update_env "CORPORATE_ALLOW_API_KEY" "$CORPORATE_ALLOW_API_KEY" "$ENV_FILE"
       update_env "CORPORATE_API_KEY" "" "$ENV_FILE"
-      ok "Matriz configurada — CORPORTATE_ALLOW_API_KEY definida."
+      ok "Matriz configurada — CORPORATE_ALLOW_API_KEY definida."
     else
       ask_value "Chave de API fornecida pela matriz para envio de dados" \
         "" CORPORATE_API_KEY
       update_env "CORPORATE_API_KEY" "$CORPORATE_API_KEY" "$ENV_FILE"
       update_env "CORPORATE_ALLOW_API_KEY" "" "$ENV_FILE"
-      ok "Unidade configurada — CORPORTATE_API_KEY definida."
+      ok "Unidade configurada — CORPORATE_API_KEY definida."
     fi
     box_end
   else
