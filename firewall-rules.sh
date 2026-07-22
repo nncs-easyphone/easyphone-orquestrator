@@ -49,6 +49,9 @@ echo
 # Traefik acessa o WSS via host.docker.internal — tráfego que chega na chain INPUT
 # pela interface de bridge do Docker. São liberados na seção dedicada abaixo APENAS
 # via interface de bridge (-i br+), sem expô-los à internet.
+# Proteção em camadas:
+#   1. manager.conf — ACL deny + permit somente IPs privados (10/8, 172.16/12, 192.168/16)
+#   2. iptables     — porta 5038 só aceita tráfego vindo de interfaces br+ (Docker)
 # PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
 PORTS_TCP=(22 80 443 5061 3478 5349)
 PORTS_UDP=(5060 3478 5349)
@@ -145,6 +148,14 @@ for port in "${PORTS_INTERNAL_TCP[@]}"; do
   iptables -A EASYFONE_INPUT -i br+ -p tcp --dport "$port" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} TCP/$port (interno Docker)"
 done
+
+# ── 9c. Drop explícito do AMI para tráfego NÃO vindo do Docker ──────────
+#     Reforço de segurança: mesmo que a política INPUT DROP seja alterada,
+#     tráfego externo na porta 5038 é explicitamente rejeitado aqui.
+#     A regra -i br+ ACCEPT acima prevalece para tráfego legítimo dos containers.
+info "Bloqueando acesso externo ao AMI (TCP/5038)…"
+iptables -A EASYFONE_INPUT -p tcp --dport 5038 -j DROP
+echo -e "  ${GREEN}✓${NC} TCP/5038 (DROP explícito para tráfego não-bridge)"
 
 # ── 10. Persistência ─────────────────────────────────────────────────
 echo

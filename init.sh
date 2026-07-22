@@ -208,26 +208,6 @@ if $CONFIG_ENABLED; then
     ok "Variáveis do Coturn mantidas como estão."
   fi
 
-  # ── Asterisk ──
-  if ask_yes "Configurar variáveis do Asterisk?"; then
-    box_start "Configuração Asterisk"
-    ask_value "AMI Username" "easyphone" VITE_ASTERISK_USERNAME
-    update_env "VITE_ASTERISK_USERNAME" "$VITE_ASTERISK_USERNAME" "$ENV_FILE"
-
-    printf -v RANDOM_AMI_PASS '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'test123')"
-    ask_value "AMI Password" "$RANDOM_AMI_PASS" VITE_ASTERISK_PASSWORD
-    update_env "VITE_ASTERISK_PASSWORD" "$VITE_ASTERISK_PASSWORD" "$ENV_FILE"
-    box_end
-  elif $FIRST_RUN; then
-    box_start "Configuração Asterisk"
-    printf -v VITE_ASTERISK_PASSWORD '%s' "$(openssl rand -base64 18 2>/dev/null || echo 'test123')"
-    update_env "VITE_ASTERISK_PASSWORD" "$VITE_ASTERISK_PASSWORD" "$ENV_FILE"
-    ok "Senha AMI do Asterisk gerada automaticamente."
-    box_end
-  else
-    ok "Variáveis do Asterisk mantidas como estão."
-  fi
-
   # ── Firebase Service Account ──
   if $FIRST_RUN; then
     update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "" "$ENV_FILE"
