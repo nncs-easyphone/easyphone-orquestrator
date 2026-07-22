@@ -53,7 +53,7 @@ echo
 #   1. manager.conf — ACL deny + permit somente IPs privados (10/8, 172.16/12, 192.168/16)
 #   2. iptables     — porta 5038 só aceita tráfego vindo de interfaces br+ (Docker)
 # PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
-PORTS_TCP=(22 80 443 5061 3478 5349)
+PORTS_TCP=(22 80 443 5061 3478 5349 8088 5038)
 PORTS_UDP=(5060 3478 5349)
 
 # Faixa de RTP (mídia/áudio das chamadas) — DEVE casar com rtp.conf (rtpstart/rtpend).
