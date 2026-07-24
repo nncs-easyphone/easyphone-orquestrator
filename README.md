@@ -297,3 +297,10 @@ turnutils_uclient -T -u easyphone -w "$COTURN_PASS" pbx.exemplo.com
 ```
 
 Verifique também se a faixa de relay `49152-65535/udp` e a faixa de RTP `10000-20000/udp` estão liberadas no firewall do provedor de nuvem (além do da VM).
+
+## TODO
+
+- [ ] **Migrar volumes nomeados para bind mount em `/opt/easyphone-data/`**
+  Substituir volumes nomeados do Docker (`pgdata`, `traefik_data`, `coturn_certs`,
+  `asterisk_config`, `asterisk_lib`, `asterisk_log`, `asterisk_monitor`) por bind
+  mounts em `/opt/easyphone-data/` para facilitar backups com `rsync`/`tar`.
