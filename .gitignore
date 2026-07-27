@@ -1,3 +1,4 @@
 .env
 traefik/conf/wss.yml
 coturn/turnserver.conf
+whitelist.conf

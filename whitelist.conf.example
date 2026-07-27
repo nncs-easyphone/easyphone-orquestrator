@@ -1,0 +1,29 @@
+# EasyFone Orchestrator — Whitelist de origens
+#
+# Copie para 'whitelist.conf' e ajuste a lista. A existência do whitelist.conf é
+# o que ativa a whitelist: sem ele, o whitelist-rules.sh não faz nada e o
+# firewall-rules.sh segue liberando as portas do projeto para qualquer origem.
+#
+#   cp whitelist.conf.example whitelist.conf
+#   sudo bash firewall-rules.sh
+#
+# ⚠️ ANTES DE ATIVAR, confira que a lista cobre:
+#   - o IP de onde você administra o servidor (senão você perde o SSH — o script
+#     recusa aplicar se detectar isso, mas confira mesmo assim);
+#   - os IPs de sinalização E de mídia (RTP) das operadoras dos troncos SIP. Se a
+#     mídia vier de um IP fora da lista, a chamada completa e fica sem áudio —
+#     sintoma que não aponta para o firewall;
+#   - as redes dos ramais e dos clientes WebRTC (STUN/TURN).
+#
+# O que a whitelist NÃO alcança: as portas 80/443 do Traefik. Tráfego de container
+# publicado não passa pela chain INPUT, então app./api. e o desafio TLS do
+# Let's Encrypt continuam abertos ao mundo — de propósito.
+
+ALLOWED=(
+  "127.0.0.1/32"        # redundante (o lo já é aceito antes do jump), mantido por clareza
+  "172.16.0.0/14"       # redes bridge do Docker (172.16 – 172.19)
+  "192.168.0.0/16"      # rede local
+  "191.252.179.0/24"
+  "45.7.56.214/32"
+  "186.228.228.250/32"
+)

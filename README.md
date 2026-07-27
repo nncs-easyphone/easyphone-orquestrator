@@ -129,6 +129,8 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | `run.sh` | Script para subir a stack |
 | `firewall-rules.sh` | Regras de firewall com chain dedicada `EASYFONE_INPUT` |
 | `systemd/easyfone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
+| `whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYFONE_WHITELIST`), encadeada pelo `firewall-rules.sh` |
+| `whitelist.conf.example` | Template da lista de origens permitidas — copie para `whitelist.conf` para ativar |
 | `.env` | Configuração de ambiente (copie de `.env.example`) |
 | `.env.example` | Template do ambiente |
 | `docker-compose.yml` | Definição dos serviços |
@@ -158,6 +160,48 @@ sudo bash init.sh
 
 # Forçar renovação do certificado SSL do Traefik
 docker compose exec traefik traefik healthcheck
+```
+
+## Whitelist de origens (opcional)
+
+Por padrão as portas do projeto ficam abertas a qualquer origem. Para restringir por IP, ative a whitelist:
+
+```bash
+cp whitelist.conf.example whitelist.conf
+# revise a lista ANTES de aplicar
+sudo bash firewall-rules.sh
+```
+
+A existência do `whitelist.conf` é o que ativa — sem ele o `whitelist-rules.sh` não faz nada. O `firewall-rules.sh` o encadeia automaticamente, então a whitelist também é reaplicada no boot pelo `easyfone-firewall.service`.
+
+**Como funciona.** Uma chain `EASYFONE_WHITELIST` é avaliada **antes** da `EASYFONE_INPUT`: a primeira filtra por **origem**, a segunda por **porta**.
+
+```
+INPUT (policy DROP)
+  1  ESTABLISHED,RELATED  → ACCEPT
+  2  -i lo                → ACCEPT
+  3  icmp echo-request    → ACCEPT
+  4  -j EASYFONE_WHITELIST   ← origem permitida faz RETURN; o resto vai para LOG + DROP
+  5  -j EASYFONE_INPUT       ← filtro por porta
+```
+
+O `RETURN` (em vez de `ACCEPT`) é proposital: a origem permitida ainda passa pelo filtro de portas, então o `DROP` explícito do AMI (5038) continua valendo para tráfego que não vem das bridges do Docker.
+
+**O que a whitelist NÃO alcança:** as portas 80/443 do Traefik. Tráfego de container publicado não passa pela INPUT — vai por `nat/PREROUTING` → `FORWARD` → chains `DOCKER-*`. `app.`, `api.` e o desafio TLS do Let's Encrypt seguem abertos ao mundo, de propósito.
+
+**Antes de ativar, confira que a lista cobre:**
+
+- o IP de onde você administra o servidor — o script recusa aplicar se detectar que a origem do seu SSH está fora da lista (use `--force` para ignorar);
+- os IPs de sinalização **e de mídia (RTP)** das operadoras dos troncos. Se só a sinalização estiver liberada, a chamada completa e fica muda — sintoma que não aponta para o firewall;
+- as redes dos ramais e dos clientes WebRTC (STUN/TURN).
+
+```bash
+# Ver a chain e o que ela está bloqueando
+sudo iptables -L EASYFONE_WHITELIST -n -v --line-numbers
+sudo journalctl -k | grep EASYFONE-WL-DROP
+
+# Desfazer
+sudo bash whitelist-rules.sh --remove
 ```
 
 ## Solução de problemas

@@ -177,6 +177,21 @@ info "Bloqueando acesso externo ao AMI (TCP/5038)…"
 iptables -A EASYFONE_INPUT -p tcp --dport 5038 -j DROP
 echo -e "  ${GREEN}✓${NC} TCP/5038 (DROP explícito para tráfego não-bridge)"
 
+# ── 9d. Whitelist de origens (opcional) ──────────────────────────────
+#     Roda depois de montar a EASYFONE_INPUT porque o whitelist-rules.sh insere o
+#     jump dele imediatamente ANTES dela — precisa que a chain já esteja na INPUT
+#     para calcular a posição. Sem whitelist.conf o script sai sem fazer nada, e
+#     uma falha dele (ex.: trava de lockout) não pode abortar o firewall.
+WHITELIST_SCRIPT="$(dirname "$(readlink -f "$0")")/whitelist-rules.sh"
+
+if [[ -f "$WHITELIST_SCRIPT" ]]; then
+  echo
+  if ! bash "$WHITELIST_SCRIPT"; then
+    warn "whitelist-rules.sh falhou — as regras de porta acima seguem aplicadas."
+    warn "Rode 'sudo bash $WHITELIST_SCRIPT' para ver o motivo."
+  fi
+fi
+
 # ── 10. Persistência ─────────────────────────────────────────────────
 #     Duas estratégias, mutuamente exclusivas:
 #
