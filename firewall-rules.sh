@@ -9,6 +9,12 @@
 #
 # NOTA: FORWARD fica ACCEPT para não quebrar o roteamento de redes do Docker.
 # IPv6 deve estar desabilitado no kernel; este script não configura ip6tables.
+#
+# ⚠️ NUNCA use `iptables -F` (nem `-F INPUT`) neste host. A INPUT termina em DROP
+# e carrega o jump para a EASYFONE_INPUT: esvaziá-la derruba SIP/RTP/AMI na hora,
+# porque o Asterisk e o Coturn rodam em host networking e seu tráfego chega pela
+# INPUT. Para mudar regras, edite este script e rode-o de novo — ele é
+# idempotente e o único `-F` que executa é na sua própria chain.
 
 set -euo pipefail
 
@@ -63,6 +69,20 @@ RTP_UDP_RANGE="10000:20000"
 # ── 0. Verifica módulo conntrack ──────────────────────────────────────
 if ! lsmod 2>/dev/null | grep -q nf_conntrack; then
   modprobe nf_conntrack 2>/dev/null || warn "Módulo nf_conntrack não disponível — regras ESTABLISHED,RELATED podem falhar."
+fi
+
+# ── 0b. Sanidade das chains do Docker ────────────────────────────────
+#     O dockerd cria DOCKER, DOCKER-USER, DOCKER-FORWARD e DOCKER-ISOLATION-*
+#     apenas na inicialização do daemon; depois disso só acrescenta regras nelas.
+#     Se um flush amplo ou um `iptables-restore` de snapshot antigo as apagou,
+#     todo `docker network create` falha com "No chain/target/match by that name"
+#     e só volta ao normal reiniciando o daemon. Aqui apenas avisamos: reiniciar
+#     o Docker derruba containers e chamadas em curso, e essa decisão é do
+#     operador.
+if pidof dockerd &>/dev/null && ! iptables -n -L DOCKER-USER &>/dev/null; then
+  warn "O dockerd está rodando, mas as chains DOCKER-* não existem no netfilter."
+  warn "Nenhum 'docker network create' vai funcionar até o daemon ser reiniciado:"
+  warn "    systemctl restart docker   # ⚠ derruba containers e chamadas em curso"
 fi
 
 # ── 1. Cria e limpa a chain dedicada EASYFONE_INPUT ──────────────────
@@ -158,19 +178,46 @@ iptables -A EASYFONE_INPUT -p tcp --dport 5038 -j DROP
 echo -e "  ${GREEN}✓${NC} TCP/5038 (DROP explícito para tráfego não-bridge)"
 
 # ── 10. Persistência ─────────────────────────────────────────────────
+#     Duas estratégias, mutuamente exclusivas:
+#
+#     a) easyfone-firewall.service (preferida) — reaplica ESTE script a cada boot,
+#        depois do docker.service. As chains do Docker sempre existem antes das
+#        nossas regras entrarem, e nada é congelado em arquivo.
+#
+#     b) Snapshot da tabela inteira (netfilter-persistent / rules.v4) — fallback
+#        para quando o unit não está instalado. Funciona, mas é o mecanismo que
+#        causou o incidente: o `iptables-restore` do boot FLUSHA a tabela antes
+#        de aplicar, então um snapshot tirado sem as chains do Docker as apaga
+#        e quebra todo `docker network create`.
 echo
-info "Salvando regras para restaurar no boot…"
 
-if command -v netfilter-persistent &>/dev/null; then
-  netfilter-persistent save
-  ok "Regras salvas via netfilter-persistent."
-elif [[ -d /etc/iptables ]]; then
-  iptables-save > /etc/iptables/rules.v4
-  ok "Regras salvas em /etc/iptables/rules.v4"
+if systemctl is-enabled easyfone-firewall.service &>/dev/null; then
+  ok "easyfone-firewall.service habilitado — as regras são reaplicadas no boot."
+  info "Snapshot da tabela dispensado (não congela as chains do Docker)."
+
+  if systemctl is-enabled netfilter-persistent &>/dev/null; then
+    warn "netfilter-persistent também está habilitado e restaura um snapshot no boot."
+    warn "É esse snapshot que pode apagar as chains do Docker. Para desativá-lo:"
+    warn "    systemctl disable netfilter-persistent"
+  fi
 else
-  mkdir -p /etc/iptables
-  iptables-save > /etc/iptables/rules.v4
-  ok "Diretório /etc/iptables criado e regras salvas."
+  info "Salvando regras para restaurar no boot…"
+
+  if command -v netfilter-persistent &>/dev/null; then
+    netfilter-persistent save
+    ok "Regras salvas via netfilter-persistent."
+  elif [[ -d /etc/iptables ]]; then
+    iptables-save > /etc/iptables/rules.v4
+    ok "Regras salvas em /etc/iptables/rules.v4"
+  else
+    mkdir -p /etc/iptables
+    iptables-save > /etc/iptables/rules.v4
+    ok "Diretório /etc/iptables criado e regras salvas."
+  fi
+
+  warn "Persistência por snapshot: se ele for gravado sem as chains do Docker,"
+  warn "o boot vai apagá-las e o 'docker compose up' falhará."
+  warn "Prefira instalar o unit — 'sudo bash init.sh' (etapa 4/6) cuida disso."
 fi
 
 # ── 11. Aviso sobre Docker ──────────────────────────────────────────

@@ -1,0 +1,24 @@
+; Template do unit de firewall do EasyFone.
+; O init.sh gera /etc/systemd/system/easyfone-firewall.service a partir deste
+; arquivo, substituindo __FIREWALL_SCRIPT__ pelo caminho absoluto real do
+; firewall-rules.sh.
+
+[Unit]
+Description=EasyFone — regras de firewall (chain EASYFONE_INPUT)
+Documentation=file://__FIREWALL_SCRIPT__
+# O dockerd cria as chains DOCKER-* apenas na inicialização do daemon. Aplicar o
+# firewall DEPOIS dele garante que as regras do projeto sejam acrescentadas por
+# cima, em vez de um snapshot antigo apagá-las (o que quebra todo
+# `docker network create` com "iptables: No chain/target/match by that name").
+# Wants, e não Requires: se o Docker falhar, o firewall ainda precisa ser
+# aplicado — caso contrário o host ficaria sem o INPUT DROP.
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash __FIREWALL_SCRIPT__
+
+[Install]
+WantedBy=multi-user.target

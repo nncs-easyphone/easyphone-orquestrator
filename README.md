@@ -38,7 +38,7 @@ O script interativamente:
 | **1/6** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
 | **2/6** | Autentica no ghcr.io (valida o token com um pull real) |
 | **3/6** | Instala iptables e iptables-persistent |
-| **4/6** | Aplica as regras de firewall (chain dedicada `EASYFONE_INPUT`) |
+| **4/6** | Instala o serviço `easyfone-firewall` (reaplica o firewall a cada boot, depois do Docker) e aplica as regras (chain dedicada `EASYFONE_INPUT`) |
 | **5/6** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
 
 > **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
@@ -128,6 +128,7 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | `init.sh` | Script de provisionamento (Docker, ghcr, iptables, firewall, compose) |
 | `run.sh` | Script para subir a stack |
 | `firewall-rules.sh` | Regras de firewall com chain dedicada `EASYFONE_INPUT` |
+| `systemd/easyfone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
 | `.env` | Configuração de ambiente (copie de `.env.example`) |
 | `.env.example` | Template do ambiente |
 | `docker-compose.yml` | Definição dos serviços |
@@ -160,6 +161,40 @@ docker compose exec traefik traefik healthcheck
 ```
 
 ## Solução de problemas
+
+### `docker compose up` falha com `iptables: No chain/target/match by that name`
+
+```
+Failed to Setup IP tables: Unable to enable ACCEPT OUTGOING rule:
+iptables --wait -t filter -A DOCKER-FORWARD -i br-xxxxxxxx -j ACCEPT
+```
+
+As chains que o `dockerd` cria (`DOCKER`, `DOCKER-USER`, `DOCKER-FORWARD`, `DOCKER-ISOLATION-*`) foram apagadas do netfilter. Ele as cria **apenas na inicialização do daemon**, então nenhum `docker network create` volta a funcionar até reiniciar o Docker:
+
+```bash
+iptables -S | grep -c DOCKER     # 0 confirma o diagnóstico
+
+cd /opt/easyphone-orquestrator
+docker compose down --remove-orphans
+docker network prune -f
+systemctl restart docker         # ⚠ derruba containers e chamadas em curso
+bash firewall-rules.sh           # recria a EASYFONE_INPUT e o jump da INPUT
+docker compose up -d
+```
+
+**Se o problema voltar após um reboot**, a causa é a persistência por snapshot: o `iptables-restore` do boot flusha a tabela antes de aplicar `/etc/iptables/rules.v4`, e um snapshot gravado sem as chains do Docker as apaga. Verifique e corrija:
+
+```bash
+grep -c DOCKER /etc/iptables/rules.v4          # 0 = snapshot incompleto
+systemctl is-enabled easyfone-firewall         # deve estar "enabled"
+systemctl disable netfilter-persistent         # o unit acima substitui a função
+```
+
+O `easyfone-firewall.service` (instalado na etapa 4/6 do `init.sh`) roda depois do `docker.service` e reaplica o `firewall-rules.sh` a cada boot, dispensando o snapshot.
+
+### ⚠️ Nunca rode `iptables -F` neste host
+
+Nem `iptables -F INPUT`. A INPUT termina em DROP e carrega o jump para a `EASYFONE_INPUT`: esvaziá-la derruba SIP, RTP e AMI na hora, porque Asterisk e Coturn rodam em `network_mode: host` e o tráfego deles chega pela INPUT. Scripts de whitelist que começam com `-F INPUT` quebram o PBX toda vez que rodam — regras extras devem ser **acrescentadas** (na `EASYFONE_INPUT` para host networking, ou na `DOCKER-USER` para o tráfego dos containers). Para alterar o firewall, edite o `firewall-rules.sh` e rode-o de novo; ele é idempotente.
 
 ### `docker compose pull` falha com "unauthorized"
 

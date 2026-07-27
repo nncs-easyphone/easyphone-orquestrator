@@ -486,22 +486,64 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 step "4/6 — Regras de Firewall"
 
-FIREWALL_SCRIPT="$(dirname "$(readlink -f "$0")")/firewall-rules.sh"
+REPO_DIR="$(dirname "$(readlink -f "$0")")"
+FIREWALL_SCRIPT="$REPO_DIR/firewall-rules.sh"
+FIREWALL_UNIT_TEMPLATE="$REPO_DIR/systemd/easyfone-firewall.service.example"
+FIREWALL_UNIT_PATH="/etc/systemd/system/easyfone-firewall.service"
 
 if [[ ! -f "$FIREWALL_SCRIPT" ]]; then
   warn "Arquivo 'firewall-rules.sh' não encontrado ao lado do init.sh."
   warn "Crie-o ou copie-o para '$FIREWALL_SCRIPT' antes de aplicar as regras."
 elif ! $IPTABLES_INSTALLED; then
   warn "iptables não está instalado; não é possível aplicar regras de firewall."
-elif ask_yes "Aplicar regras de firewall padrão agora?"; then
-  box_start "Aplicação de regras de firewall"
-  bash "$FIREWALL_SCRIPT" 2>&1 | tee -a "$LOGFILE"
-  ok "Regras de firewall aplicadas."
-  box_end
-  INSTALLED+=("firewall-rules")
 else
-  echo "  → Regras de firewall não aplicadas."
-  echo "  → Execute manualmente quando quiser: sudo bash firewall-rules.sh"
+  # ── 4a. Serviço que reaplica o firewall a cada boot ────────────────
+  #     Instalado ANTES de aplicar as regras: o firewall-rules.sh checa se este
+  #     unit está habilitado para decidir se ainda precisa salvar um snapshot da
+  #     tabela. O unit roda depois do docker.service, então as chains DOCKER-*
+  #     já existem quando as regras do projeto entram — o oposto do snapshot,
+  #     que é restaurado com FLUSH e apaga essas chains, quebrando o
+  #     `docker network create` com "No chain/target/match by that name".
+  if [[ ! -f "$FIREWALL_UNIT_TEMPLATE" ]]; then
+    warn "Template 'systemd/easyfone-firewall.service.example' não encontrado; unit não instalado."
+  elif ! command -v systemctl &>/dev/null; then
+    warn "systemctl não disponível; unit de firewall não instalado."
+  elif ask_yes "Instalar o serviço que reaplica o firewall a cada boot (recomendado)?"; then
+    box_start "Instalação do easyfone-firewall.service"
+    sed "s|__FIREWALL_SCRIPT__|$FIREWALL_SCRIPT|g" \
+      "$FIREWALL_UNIT_TEMPLATE" > "$FIREWALL_UNIT_PATH"
+    systemctl daemon-reload
+    systemctl enable easyfone-firewall.service 2>&1 | tee -a "$LOGFILE"
+    ok "easyfone-firewall.service instalado e habilitado."
+    INSTALLED+=("easyfone-firewall.service")
+    box_end
+
+    if systemctl is-enabled netfilter-persistent &>/dev/null; then
+      warn "netfilter-persistent restaura um snapshot da tabela inteira no boot."
+      warn "É esse snapshot que pode apagar as chains do Docker; o serviço acima"
+      warn "substitui a função reaplicando as regras depois que o Docker sobe."
+      if ask_yes "Desabilitar o netfilter-persistent?"; then
+        systemctl disable netfilter-persistent 2>&1 | tee -a "$LOGFILE"
+        ok "netfilter-persistent desabilitado."
+      else
+        echo "  → Mantido. Se o 'docker compose up' falhar após um reboot, comece por aqui."
+      fi
+    fi
+  else
+    echo "  → Serviço não instalado; as regras não serão reaplicadas no boot."
+  fi
+
+  # ── 4b. Aplica as regras agora ─────────────────────────────────────
+  if ask_yes "Aplicar regras de firewall padrão agora?"; then
+    box_start "Aplicação de regras de firewall"
+    bash "$FIREWALL_SCRIPT" 2>&1 | tee -a "$LOGFILE"
+    ok "Regras de firewall aplicadas."
+    box_end
+    INSTALLED+=("firewall-rules")
+  else
+    echo "  → Regras de firewall não aplicadas."
+    echo "  → Execute manualmente quando quiser: sudo bash firewall-rules.sh"
+  fi
 fi
 
 divider
