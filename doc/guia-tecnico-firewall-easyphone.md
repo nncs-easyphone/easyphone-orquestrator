@@ -1,6 +1,40 @@
-# Guia Técnico - Firewall EasyPhone (iptables + systemd)
+# ⛔ OBSOLETO — Guia Técnico - Firewall EasyPhone (iptables + systemd)
 
-**Versão:** 1.0  
+> **Este guia foi substituído e NÃO deve ser implantado.** O firewall oficial do
+> projeto é o `firewall-rules.sh` + `whitelist-rules.sh` na raiz do repositório,
+> instalado pelo `init.sh` (etapa 4/6) como `easyfone-firewall.service`.
+> Mantido aqui apenas como registro histórico.
+>
+> **Por que foi descontinuado — duas operações destrutivas:**
+>
+> 1. **`iptables -F INPUT`** (seção 3.2). Apaga os jumps para as chains
+>    `EASYFONE_WHITELIST` e `EASYFONE_INPUT`. Como Asterisk e Coturn rodam em
+>    `network_mode: host`, o tráfego deles chega pela INPUT: SIP, RTP e AMI caem
+>    na hora, toda vez que o script roda.
+> 2. **`disable.sh` como `ExecStop`** (seção 3.3). Faz `-F`/`-X` nas tabelas
+>    *filter, nat, mangle e raw*. O `iptables -t nat -F` **apaga as regras DNAT
+>    do Docker**, que o `dockerd` só recria na inicialização do daemon — as
+>    portas publicadas (Traefik 80/443) param de responder e só voltam com
+>    `systemctl restart docker`. Como é `ExecStop`, dispara em qualquer
+>    `systemctl stop`/`restart` do unit e no shutdown do host.
+>
+> Some-se a isso o nome quase idêntico ao do serviço oficial
+> (`easy**p**hone-firewall` vs. `easy**f**one-firewall`), o que torna fácil ter
+> os dois instalados brigando pelas mesmas chains.
+>
+> **Remoção segura, se este serviço estiver instalado no host:**
+>
+> ```bash
+> systemctl disable --now easyphone-firewall.service   # ⚠ o stop dispara o disable.sh
+> rm -f /etc/systemd/system/easyphone-firewall.service
+> systemctl daemon-reload
+> systemctl restart docker            # recria as chains e o DNAT do Docker
+> sudo bash firewall-rules.sh         # reaplica as chains EASYFONE_*
+> ```
+>
+> Para conferir o estado atual do host, rode `sudo bash diagnose-firewall.sh`.
+
+**Versão:** 1.0 (obsoleta)  
 **Objetivo:** Implantar um firewall baseado em whitelist utilizando `iptables`, com inicialização automática via `systemd`.
 
 ## Índice

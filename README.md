@@ -181,11 +181,15 @@ INPUT (policy DROP)
   1  ESTABLISHED,RELATED  → ACCEPT
   2  -i lo                → ACCEPT
   3  icmp echo-request    → ACCEPT
-  4  -j EASYFONE_WHITELIST   ← origem permitida faz RETURN; o resto vai para LOG + DROP
-  5  -j EASYFONE_INPUT       ← filtro por porta
+  4  -j EASYFONE_WHITELIST   ← origem do ALLOWED faz ACCEPT; o resto vai para LOG + DROP
+  5  -j EASYFONE_INPUT       ← filtro por porta (só para quem não é do ALLOWED)
 ```
 
-O `RETURN` (em vez de `ACCEPT`) é proposital: a origem permitida ainda passa pelo filtro de portas, então o `DROP` explícito do AMI (5038) continua valendo para tráfego que não vem das bridges do Docker.
+**⚠️ Origem no `ALLOWED` = acesso total.** A chain faz `ACCEPT`, então esses IPs saem da INPUT ali mesmo e **não** passam pelo filtro de portas: alcançam qualquer porta do host, inclusive AMI (5038), ARI (8088), WSS (8089) e Postgres (7001). Para eles, a proteção do AMI passa a ser apenas a ACL do `manager.conf`.
+
+Isso é deliberado. A `EASYFONE_INPUT` libera um conjunto fixo de portas (22, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e **não** cobre SIP em TCP/5060 nem portas 50xx alternativas — com `RETURN`, um tronco já presente na whitelist continuava sendo descartado por falar numa porta fora dessa lista, uma falha silenciosa e difícil de diagnosticar. Trate o `whitelist.conf` como lista de **hosts confiáveis**, não como filtro de borda.
+
+As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem restritos às portas da `EASYFONE_INPUT`.
 
 **O que a whitelist NÃO alcança:** as portas 80/443 do Traefik. Tráfego de container publicado não passa pela INPUT — vai por `nat/PREROUTING` → `FORWARD` → chains `DOCKER-*`. `app.`, `api.` e o desafio TLS do Let's Encrypt seguem abertos ao mundo, de propósito.
 
@@ -205,6 +209,43 @@ sudo bash whitelist-rules.sh --remove
 ```
 
 ## Solução de problemas
+
+### Diagnóstico rápido
+
+Antes de mexer em qualquer regra, colete o estado do host:
+
+```bash
+sudo bash diagnose-firewall.sh > diagnostico-$(date +%F-%H%M).txt
+```
+
+O script é **somente leitura**. Ele verifica firewalls concorrentes, a integridade das chains `DOCKER-*` e `EASYFONE_*`, a ocupação da tabela de conntrack, os bloqueios registrados no kernel e o estado do PJSIP. Se o problema for intermitente, colete também **durante** a queda e compare as duas saídas.
+
+### Tudo cai (web, SIP e SSH) e só volta reiniciando o Docker
+
+Duas causas conhecidas, nessa ordem de probabilidade:
+
+**1. Firewall concorrente no host.** Se `easyphone-firewall.service` (com `p`) estiver instalado além do `easyfone-firewall.service` (com `f`), o `ExecStop` dele roda `iptables -t nat -F`, que apaga o DNAT do Docker — as portas publicadas só voltam com `systemctl restart docker`. O `iptables -F INPUT` do script dele ainda derruba os jumps das chains `EASYFONE_*`. Confirme e remova:
+
+```bash
+systemctl status easyphone-firewall.service
+ls -l /opt/easyphone/firewall/
+journalctl -k | grep "FIREWALL DROP"     # qualquer linha confirma que ele rodou
+
+systemctl disable --now easyphone-firewall.service   # ⚠ o stop dispara o disable.sh
+rm -f /etc/systemd/system/easyphone-firewall.service
+systemctl daemon-reload
+systemctl restart docker
+sudo bash firewall-rules.sh
+```
+
+**2. Tabela de conntrack saturada.** Asterisk e Coturn rodam em `network_mode: host`; RTP (10000-20000) e o relay TURN (49152-65535) geram dezenas de milhares de fluxos UDP rastreados. Quando a tabela lota, a regra `ESTABLISHED,RELATED` — primeira da INPUT, sob policy `DROP` — deixa de casar e **toda** conexão nova cai, SSH inclusive. Reiniciar o Docker mata os containers, libera as entradas e mascara o problema.
+
+```bash
+cat /proc/sys/net/netfilter/nf_conntrack_count /proc/sys/net/netfilter/nf_conntrack_max
+dmesg | grep -i "conntrack.*table full"
+```
+
+Se a ocupação passar de ~80% sob carga, eleve o limite e reduza os timeouts UDP em `/etc/sysctl.d/99-easyfone-conntrack.conf`, ajustando os valores à RAM do host (cada entrada custa ~300 bytes).
 
 ### `docker compose up` falha com `iptables: No chain/target/match by that name`
 

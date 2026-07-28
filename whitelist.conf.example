@@ -7,6 +7,12 @@
 #   cp whitelist.conf.example whitelist.conf
 #   sudo bash firewall-rules.sh
 #
+# ⚠️ ORIGEM LISTADA AQUI = ACESSO TOTAL AO HOST. A chain EASYFONE_WHITELIST faz
+# ACCEPT para estes CIDRs, então eles NÃO passam pelo filtro de portas da
+# EASYFONE_INPUT: alcançam qualquer porta, inclusive AMI (5038), ARI (8088),
+# WSS (8089) e Postgres (7001). Esta é uma lista de hosts CONFIÁVEIS — troncos,
+# operadoras e máquinas de administração — não um filtro de borda.
+#
 # ⚠️ ANTES DE ATIVAR, confira que a lista cobre:
 #   - o IP de onde você administra o servidor (senão você perde o SSH — o script
 #     recusa aplicar se detectar isso, mas confira mesmo assim);
@@ -23,7 +29,9 @@ ALLOWED=(
   "127.0.0.1/32"        # redundante (o lo já é aceito antes do jump), mantido por clareza
   "172.16.0.0/14"       # redes bridge do Docker (172.16 – 172.19)
   "192.168.0.0/16"      # rede local
-  "191.252.179.0/24"
-  "45.7.56.214/32"
-  "186.228.228.250/32"
+  "191.252.179.0/24"    # faixa do datacenter (hosts do próprio ambiente)
+  "45.238.131.51/32"    # Lucas
+  "45.7.56.214/32"      # Operadora "Jade VDC"
+  "187.127.31.51/32"    # Hostinger — Matriz (tronco SIP)
+  "186.228.228.250/32"  # Josenito
 )

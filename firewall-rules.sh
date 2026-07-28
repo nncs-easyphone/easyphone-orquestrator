@@ -51,15 +51,20 @@ echo
 # - 5061 (SIP TLS) — ramais com SIP criptografado
 # - 3478 (STUN/TURN) — Coturn, UDP e TCP
 # - 5349 (TURNS)  — Coturn sobre TLS (redes que só liberam TLS)
-# AMI (5038), ARI (8088) e WSS (8089) são internos: a api/seed acessam AMI/ARI e o
-# Traefik acessa o WSS via host.docker.internal — tráfego que chega na chain INPUT
-# pela interface de bridge do Docker. São liberados na seção dedicada abaixo APENAS
-# via interface de bridge (-i br+), sem expô-los à internet.
+# AMI (5038), ARI (8088) e WSS (8089) são internos e NÃO entram nesta lista: a
+# api/seed acessam AMI/ARI e o Traefik acessa o WSS via host.docker.internal —
+# tráfego que chega na chain INPUT pela interface de bridge do Docker. São
+# liberados na seção 9b APENAS via interface de bridge (-i br+), sem expô-los à
+# internet. Se estiverem aqui em PORTS_TCP, a regra genérica é avaliada ANTES da
+# regra -i br+ e do DROP da seção 9c, e o AMI acaba aberto ao mundo.
 # Proteção em camadas:
 #   1. manager.conf — ACL deny + permit somente IPs privados (10/8, 172.16/12, 192.168/16)
 #   2. iptables     — porta 5038 só aceita tráfego vindo de interfaces br+ (Docker)
 # PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
-PORTS_TCP=(22 80 443 5061 3478 5349 8088 5038)
+#
+# Origens do whitelist.conf não passam por esta lista: a EASYFONE_WHITELIST faz
+# ACCEPT antes, dando acesso total a elas (ver whitelist-rules.sh).
+PORTS_TCP=(22 80 443 5061 3478 5349)
 PORTS_UDP=(5060 3478 5349)
 
 # Faixa de RTP (mídia/áudio das chamadas) — DEVE casar com rtp.conf (rtpstart/rtpend).

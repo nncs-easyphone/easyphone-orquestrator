@@ -13,10 +13,20 @@
 #     4  -j EASYFONE_WHITELIST   ← este script: filtra por ORIGEM
 #     5  -j EASYFONE_INPUT       ← firewall-rules.sh: filtra por PORTA
 #
-# A chain devolve RETURN (não ACCEPT) para as origens permitidas: elas voltam
-# para a INPUT e ainda passam pelo filtro de portas da EASYFONE_INPUT, então o
-# DROP explícito do AMI (5038) continua valendo. Com ACCEPT, qualquer IP da lista
-# ganharia todas as portas do host.
+# ORIGEM PERMITIDA = ACESSO TOTAL. A chain devolve ACCEPT para os CIDRs do
+# ALLOWED: o pacote sai da INPUT ali mesmo e NÃO passa pelo filtro de portas da
+# EASYFONE_INPUT. Um IP da lista alcança QUALQUER porta do host, incluindo AMI
+# (5038), ARI (8088), WSS (8089) e Postgres (7001).
+#
+# Foi uma decisão deliberada: a EASYFONE_INPUT libera um conjunto fixo de portas
+# (22, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e NÃO cobre,
+# por exemplo, SIP em TCP/5060 nem portas 50xx alternativas. Com RETURN, um
+# tronco legítimo já na whitelist continuava sendo descartado por falar numa
+# porta fora dessa lista — falha silenciosa e difícil de diagnosticar.
+#
+# Consequência a assumir: para as origens do ALLOWED, a proteção do AMI passa a
+# ser apenas a ACL do manager.conf (deny 0.0.0.0/0 + permits de faixas privadas).
+# Trate o whitelist.conf como lista de hosts confiáveis, não como filtro de borda.
 #
 # ⚠️ NUNCA use `iptables -F` (nem `-F INPUT`) neste host: isso apaga os jumps das
 # duas chains e derruba SIP/RTP/AMI, porque Asterisk e Coturn rodam em host
@@ -28,6 +38,12 @@
 #   ✗ As portas 80/443 do Traefik. Porta publicada por container não passa pela
 #     INPUT (vai por nat/PREROUTING → FORWARD → chains DOCKER-*), então app./api.
 #     e o desafio TLS do Let's Encrypt seguem abertos ao mundo — de propósito.
+#
+# O QUE ISTO NÃO EXPLICA: erros do Asterisk ao CRIAR requisições de SAÍDA, como
+# "Unable to create outbound OPTIONS request" / "Unable to create request to
+# qualify contact". Não existe nenhuma regra de OUTPUT neste projeto (a política
+# é ACCEPT) e o PJSIP falha nesses casos antes de emitir qualquer pacote — não
+# adianta procurar a causa no firewall.
 #
 # CONSEQUÊNCIAS de ativar (revise o whitelist.conf antes):
 #   - Ramais e troncos fora das faixas perdem SIP e RTP. Os IPs de MÍDIA das
@@ -165,18 +181,25 @@ iptables -F "$WHITELIST_CHAIN"
 # via host.docker.internal, e esse tráfego entra pela interface br-<hash>. Casar
 # pela interface cobre redes fora da faixa 172.16/14 (ex.: 172.20.x) e sobrevive
 # à recriação da rede — mesmo critério já usado na EASYFONE_INPUT.
+#
+# Aqui é RETURN, não ACCEPT: os containers seguem restritos ao conjunto de portas
+# da EASYFONE_INPUT (que já os libera para AMI/ARI/WSS via -i br+). Só as origens
+# explicitamente listadas no ALLOWED ganham acesso irrestrito.
 iptables -A "$WHITELIST_CHAIN" -i br+ -j RETURN
-echo -e "  ${GREEN}✓${NC} bridges do Docker (-i br+)"
+echo -e "  ${GREEN}✓${NC} bridges do Docker (-i br+, segue para o filtro de portas)"
 
-info "Liberando origens do whitelist.conf…"
+# ACCEPT (não RETURN): as origens confiáveis saem da INPUT aqui, sem passar pelo
+# filtro de portas. Ver o bloco "ORIGEM PERMITIDA = ACESSO TOTAL" no cabeçalho.
+info "Liberando origens do whitelist.conf (acesso total a todas as portas)…"
 for cidr in "${ALLOWED[@]}"; do
-  iptables -A "$WHITELIST_CHAIN" -s "$cidr" -j RETURN
+  iptables -A "$WHITELIST_CHAIN" -s "$cidr" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} $cidr"
 done
 
 iptables -A "$WHITELIST_CHAIN" -m limit --limit 5/min -j LOG --log-prefix "$LOG_PREFIX"
 iptables -A "$WHITELIST_CHAIN" -j DROP
 ok "Chain $WHITELIST_CHAIN montada (${#ALLOWED[@]} origens + bridges do Docker)."
+warn "As ${#ALLOWED[@]} origens do ALLOWED têm acesso a TODAS as portas do host (inclusive AMI/Postgres)."
 
 # ── Posiciona o jump na INPUT ────────────────────────────────────────
 #     Precisa vir ANTES da EASYFONE_INPUT: aquela chain aceita por porta sem olhar
