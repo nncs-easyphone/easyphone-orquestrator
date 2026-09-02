@@ -28,7 +28,7 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme.json"
     environment:
-      - LEGO_DNS_HTTPREQ_ENDPOINT=http://api:7002/dns-challenge
+      - HTTPREQ_ENDPOINT=http://api:7002/dns-challenge
 
   postgres:
     image: postgres:17-alpine
