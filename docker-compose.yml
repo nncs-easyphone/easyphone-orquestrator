@@ -23,9 +23,12 @@ services:
       - "--entrypoints.web.address=:80"
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=httpreq"
       - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme.json"
+    environment:
+      - LEGO_DNS_HTTPREQ_ENDPOINT=http://api:7002/dns-challenge
 
   postgres:
     image: postgres:17-alpine
