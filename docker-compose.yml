@@ -163,6 +163,11 @@ services:
       # STUN, aponte para o Coturn público (ex.: pbx.dominio.com.br:3478) e
       # confirme que responde antes.
       ASTERISK_STUN_ADDR: ${ASTERISK_STUN_ADDR:-}
+      # Interface em que o ARI (8088) escuta. Vazio = o padrão da imagem,
+      # 172.17.0.1 (o host na bridge docker0, que é o host.docker.internal por
+      # onde api/seed chegam). Só preencha se o Docker usar outro `bip` ou se
+      # a API alcançar o ARI de fora do host (0.0.0.0).
+      ASTERISK_HTTP_BIND_ADDR: ${ASTERISK_HTTP_BIND_ADDR:-}
     healthcheck:
       test: ["CMD-SHELL", "asterisk -rx \"core waitfullybooted\" | grep -q \"fully booted\" || exit 1"]
       interval: 10s

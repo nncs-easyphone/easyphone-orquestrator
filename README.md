@@ -80,7 +80,7 @@ A stack inclui:
 | **PgBouncer** | — | Pool de conexões (acesso interno apenas) |
 | **certs-dumper** | — | Extrai o certificado de `pbx.${DOMAIN}` do `acme.json` do Traefik para o Coturn usar no TURNS |
 | **Coturn** | STUN `3478/udp`, TURN `3478/tcp+udp`, TURNS `5349/tcp+udp`, relay `49152-65535/udp` | STUN/TURN para WebRTC (NAT traversal) |
-| **Asterisk** | SIP `5060/udp`, SIP TLS `5061/tcp`, RTP `10000-20000/udp` | PBX (AMI `5038`, ARI `8088` e WSS `8089` são internos — só acessíveis pela bridge do Docker) |
+| **Asterisk** | SIP `5060/udp`, SIP TLS `5061/tcp`, RTP `10000-20000/udp` | PBX (AMI `5038`, ARI `8088` e WSS `8089` são internos — só acessíveis pela bridge do Docker; a 8088 escuta por padrão só na docker0, `172.17.0.1`; `ASTERISK_HTTP_BIND_ADDR` sobrepõe, ver `.env.example`) |
 
 ## 4. Acesse
 
