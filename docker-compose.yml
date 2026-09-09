@@ -356,6 +356,31 @@ services:
       api:
         condition: service_started
 
+  backup:
+    image: ghcr.io/nncs-easyphone/easyphone-backup:main
+    build:
+      context: ../easyphone-backup
+      dockerfile: Dockerfile
+    container_name: easyphone-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      asterisk:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      ASTERISK_MONITOR_PATH: /var/spool/asterisk/monitor
+      BACKUP_OUTPUT_PATH: /backups
+      BACKUP_CRON_SCHEDULE: "0 2 * * *"
+      BACKUP_LOCAL_RETENTION_DAYS: "15"
+      BACKUP_LOCAL_ENABLED: "true"
+      EASYPHONE_FIREBASE_URL: ${EASYPHONE_FIREBASE_URL}
+      EASYPHONE_FIREBASE_SERVICE_ACCOUNT: ${EASYPHONE_FIREBASE_SERVICE_ACCOUNT}
+    volumes:
+      - asterisk_monitor:/var/spool/asterisk/monitor:ro
+      - backup_data:/backups
+
 volumes:
   pgdata:
   coturn_certs:
@@ -364,6 +389,7 @@ volumes:
   asterisk_log:
   asterisk_monitor:
   traefik_data:
+  backup_data:
 
 networks:
   default:
