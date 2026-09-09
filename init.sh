@@ -216,11 +216,32 @@ if $CONFIG_ENABLED; then
     warn "Firebase Service Account não foi alterado. Edite manualmente no .env se necessário."
   fi
 
-  # ── License Hardware ID ──
-  MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
-  ask_value "Hardware ID da licença (opcional — default: machine-id)" "$MACHINE_ID" EASYPHONE_LICENSE_HARDWARE_ID
-  update_env "EASYPHONE_LICENSE_HARDWARE_ID" "$EASYPHONE_LICENSE_HARDWARE_ID" "$ENV_FILE"
-  ok "License Hardware ID definido."
+  # ── Firebase URLs ──
+  if ask_yes "Configurar URLs do Firebase?"; then
+    box_start "Configuração Firebase"
+    ask_value "URL do Firebase Hosting" "https://services.easyphone.com.br" EASYPHONE_FIREBASE_URL
+    update_env "EASYPHONE_FIREBASE_URL" "$EASYPHONE_FIREBASE_URL" "$ENV_FILE"
+
+    ask_value "URL das Cloud Functions" "https://us-central1-easyfone-bc601.cloudfunctions.net" EASYPHONE_FIREBASE_FUNCTIONS_URL
+    update_env "EASYPHONE_FIREBASE_FUNCTIONS_URL" "$EASYPHONE_FIREBASE_FUNCTIONS_URL" "$ENV_FILE"
+    box_end
+  else
+    ok "URLs do Firebase mantidas como estão."
+  fi
+
+  # ── License ──
+  if ask_yes "Configurar variáveis de Licença?"; then
+    box_start "Configuração de Licença"
+    ask_value "Client ID da licença" "" EASYPHONE_LICENSE_CLIENT_ID
+    update_env "EASYPHONE_LICENSE_CLIENT_ID" "$EASYPHONE_LICENSE_CLIENT_ID" "$ENV_FILE"
+
+    MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
+    ask_value "Hardware ID da licença" "$MACHINE_ID" EASYPHONE_LICENSE_HARDWARE_ID
+    update_env "EASYPHONE_LICENSE_HARDWARE_ID" "$EASYPHONE_LICENSE_HARDWARE_ID" "$ENV_FILE"
+    box_end
+  else
+    ok "Variáveis de Licença mantidas como estão."
+  fi
 
   # ── Corporate Integration (Matriz/Unidade) ──
   if ask_yes "Configurar integração corporativa (Matriz/Unidade)?"; then
