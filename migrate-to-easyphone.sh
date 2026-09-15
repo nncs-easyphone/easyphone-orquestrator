@@ -19,7 +19,9 @@
 #   1. backup lógico do Postgres e do .env;
 #   2. derruba o projeto antigo (preservando volumes);
 #   3. copia os volumes de dados para os nomes-alvo (quando necessário);
-#   4. renomeia o banco/role do Postgres (quando necessário);
+#   4. renomeia banco/role do Postgres e ALINHA a senha da role ao .env
+#      (regenera em hex se a senha tiver caracteres que quebram ODBC/URL),
+#      com verificação de login TCP antes de encerrar;
 #   5. ajusta o .env;
 #   6. migra o firewall do host (unit systemd + chains iptables);
 #   7. imprime os próximos passos (e, com --cleanup, remove o resíduo antigo).
@@ -31,7 +33,9 @@
 #   --dry-run             Mostra o plano (volumes e tamanhos) sem alterar nada.
 #   --yes                 Não-interativo.
 #   --old-project <nome>  Força o projeto Compose antigo (senão, auto-detecta).
-#   --skip-db-rename      Não renomeia role/db do Postgres.
+#   --skip-db             Não renomeia role/db nem mexe na senha do Postgres.
+#   --keep-db-password    Não altera a senha existente (avisa se for insegura).
+#   --password <valor>    Define a senha do Postgres explicitamente.
 #   --skip-firewall       Não mexe no firewall do host.
 #   --cleanup             Após sucesso, remove volumes/rede/backups antigos.
 #   --force               Prossegue mesmo com estado ambíguo.
@@ -62,6 +66,8 @@ OLD_CHAIN_WL="EASYFONE_WHITELIST"
 NEW_UNIT_TEMPLATE="$REPO_DIR/systemd/easyphone-firewall.service.example"
 NEW_UNIT_PATH="/etc/systemd/system/$NEW_UNIT"
 
+PG_MIGRATE_NAME="easyphone-pg-migrate"
+
 # ─────────────────────────────────────────────────────────────────────
 #  CORES / LOG
 # ─────────────────────────────────────────────────────────────────────
@@ -86,6 +92,7 @@ run() {
 #  ARGUMENTOS
 # ─────────────────────────────────────────────────────────────────────
 DRY_RUN=false; ASSUME_YES=false; SKIP_DB=false; SKIP_FW=false; CLEANUP=false; FORCE=false
+KEEP_DB_PASSWORD=false; PW_OVERRIDE=""
 OLD_PROJECT_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
@@ -97,11 +104,17 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] && shift
       ;;
-    --skip-db-rename) SKIP_DB=true; shift ;;
+    --password)
+      PW_OVERRIDE="${2:-}"
+      shift
+      [[ $# -gt 0 ]] && shift
+      ;;
+    --keep-db-password) KEEP_DB_PASSWORD=true; shift ;;
+    --skip-db|--skip-db-rename) SKIP_DB=true; shift ;;
     --skip-firewall)  SKIP_FW=true; shift ;;
     --cleanup)        CLEANUP=true; shift ;;
     --force)          FORCE=true; shift ;;
-    -h|--help)        sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)        sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) error "Argumento desconhecido: $1"; exit 1 ;;
   esac
 done
@@ -144,6 +157,37 @@ detect_pg_container() {
   echo "$n"
 }
 
+# Senha segura: só caracteres que não quebram ODBC (odbc.ini), DATABASE_URL ou .env.
+password_is_safe() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]; }
+
+# Senha hex (só [0-9a-f]) — segura em qualquer consumidor.
+gen_hex_secret() {
+  local bytes="${1:-24}"
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex "$bytes"
+  elif [[ -r /dev/urandom ]]; then
+    head -c "$bytes" /dev/urandom | od -An -tx1 | tr -d ' \n'
+  else
+    error "Sem 'openssl' nem /dev/urandom para gerar senha segura."
+    return 1
+  fi
+}
+
+# read_env <chave>: lê um valor do .env sem source.
+read_env() { grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2- || true; }
+
+# update_env: grava o valor literal (via ENVIRON, sem interpretar escapes).
+update_env() {
+  local key="$1" value="$2"
+  [[ "$value" == *$'\n'* ]] && { error "Valor de $key contém quebra de linha."; return 1; }
+  KEY="$key" VAL="$value" awk '
+    BEGIN { k = ENVIRON["KEY"]; v = ENVIRON["VAL"]; replaced = 0 }
+    index($0, k "=") == 1 { print k "=" v; replaced = 1; next }
+    { print }
+    END { if (!replaced) print k "=" v }
+  ' "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
+}
+
 NEW_PG_USER="easyphone"
 NEW_PG_DB="easyphone"
 
@@ -167,11 +211,49 @@ fi
 OLD_PG_USER="${OLD_PG_USER:-easyfone}"
 OLD_PG_DB="${OLD_PG_DB:-easyfone}"
 
+# Imagem e volume-alvo do Postgres (usados no ajuste de role/db/senha)
+PG_IMAGE=""; TARGET_PG_VOLUME=""
+if [[ -n "$PG_CONTAINER" ]]; then
+  PG_IMAGE="$(docker inspect "$PG_CONTAINER" --format '{{.Config.Image}}' 2>/dev/null || true)"
+  pgvol="$(docker inspect "$PG_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' 2>/dev/null || true)"
+  [[ -n "$pgvol" ]] && TARGET_PG_VOLUME="${NEW_PROJECT}${pgvol#"$OLD_PROJECT"}"
+fi
+[[ -z "$PG_IMAGE" ]] && PG_IMAGE="postgres:17-alpine"
+[[ -z "$TARGET_PG_VOLUME" ]] && TARGET_PG_VOLUME="${NEW_PROJECT}_pgdata"
+
+# Senha do Postgres: lê do .env e decide se regenera.
+# - alvo: role no banco == POSTGRES_PASSWORD do .env (é o que todos os clientes usam);
+# - se a senha tiver caractere que quebra ODBC/URL, regenera em hex.
+CUR_PW="$(read_env POSTGRES_PASSWORD)"
+FINAL_PW="$CUR_PW"; ROTATE_PW=false
+if [[ -n "$PW_OVERRIDE" ]]; then
+  FINAL_PW="$PW_OVERRIDE"
+  password_is_safe "$FINAL_PW" || warn "A senha de --password contém caracteres que podem quebrar ODBC/URL."
+elif $KEEP_DB_PASSWORD; then
+  if [[ -n "$CUR_PW" ]] && ! password_is_safe "$CUR_PW"; then
+    warn "--keep-db-password: a senha atual tem caracteres problemáticos — o ODBC do Asterisk pode continuar falhando."
+  fi
+else
+  if [[ -z "$CUR_PW" ]] || ! password_is_safe "$CUR_PW"; then
+    FINAL_PW="$(gen_hex_secret 24)"
+    ROTATE_PW=true
+    warn "POSTGRES_PASSWORD tem caracteres que quebram ODBC/URL — será regenerada em hex."
+  fi
+fi
+
 ok "Projeto Compose real:    $OLD_PROJECT"
 ok "Projeto Compose novo:    $NEW_PROJECT"
 ok "Container Postgres:      ${PG_CONTAINER:-(nenhum)}"
 ok "Postgres real:           user=$OLD_PG_USER db=$OLD_PG_DB"
 ok "Postgres novo:           user=$NEW_PG_USER db=$NEW_PG_DB"
+ok "Volume de dados alvo:    $TARGET_PG_VOLUME"
+if [[ -z "$CUR_PW" ]]; then
+  warn "Senha Postgres:          (vazia)"
+elif password_is_safe "$CUR_PW"; then
+  ok "Senha Postgres:          segura (len=${#CUR_PW})"
+else
+  warn "Senha Postgres:          INSEGURA (len=${#CUR_PW}) — será regenerada"
+fi
 [[ "$OLD_PROJECT" == "$NEW_PROJECT" ]] && ok "O projeto já é '$NEW_PROJECT' — volumes já devem estar no nome-alvo."
 
 # Volumes do projeto real (prefixo detectado, não o do .env)
@@ -294,16 +376,6 @@ fi
 # ─────────────────────────────────────────────────────────────────────
 step "4/7 — Ajustar .env"
 
-update_env() {
-  local key="$1" value="$2"
-  awk -v key="$key" -v val="$value" '
-    BEGIN { replaced = 0 }
-    index($0, key "=") == 1 { print key "=" val; replaced = 1; next }
-    { print }
-    END { if (!replaced) print key "=" val }
-  ' "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
-}
-
 if ! $DRY_RUN; then
   update_env "COMPOSE_PROJECT_NAME" "$NEW_PROJECT"
   update_env "POSTGRES_USER" "$NEW_PG_USER"
@@ -314,52 +386,100 @@ info "POSTGRES_USER=$NEW_PG_USER"
 info "POSTGRES_DB=$NEW_PG_DB"
 
 # ─────────────────────────────────────────────────────────────────────
-#  5. RENOMEAR ROLE/DB DO POSTGRES
+#  5. AJUSTAR BANCO (role/db + senha)
 # ─────────────────────────────────────────────────────────────────────
-step "5/7 — Renomear role/db do Postgres"
+step "5/7 — Ajustar banco (role/db + senha)"
+
+pg_db_changed=false;   [[ "$OLD_PG_DB"   != "$NEW_PG_DB"   ]] && pg_db_changed=true
+pg_role_changed=false; [[ "$OLD_PG_USER" != "$NEW_PG_USER" ]] && pg_role_changed=true
 
 if $SKIP_DB; then
-  warn "Pulando (--skip-db-rename)."
-elif [[ "$OLD_PG_USER" == "$NEW_PG_USER" && "$OLD_PG_DB" == "$NEW_PG_DB" ]]; then
-  ok "Postgres já é easyphone (role/db)."
-else
-  run docker compose up -d postgres
+  warn "Pulando rename/senha do Postgres (--skip-db)."
+elif ! $DRY_RUN && ! docker volume inspect "$TARGET_PG_VOLUME" >/dev/null 2>&1; then
+  warn "Volume de dados '$TARGET_PG_VOLUME' não encontrado — pulando rename/senha."
+elif $pg_db_changed || $pg_role_changed || ! $KEEP_DB_PASSWORD; then
+  # Container temporário com trust, montando o MESMO volume de dados. Bypassa a
+  # autenticação, então funciona mesmo sem saber a senha atual da role.
+  run docker rm -f "$PG_MIGRATE_NAME" || true
+  run docker run --rm -d --name "$PG_MIGRATE_NAME" \
+    -v "$TARGET_PG_VOLUME":/var/lib/postgresql/data \
+    -e POSTGRES_HOST_AUTH_METHOD=trust "$PG_IMAGE"
 
   if ! $DRY_RUN; then
-    info "Aguardando o Postgres aceitar conexões…"
     ready=false
     for _ in $(seq 1 60); do
-      if docker exec "${NEW_PROJECT}-pg" pg_isready -U "$OLD_PG_USER" -d postgres >/dev/null 2>&1; then
+      if docker exec "$PG_MIGRATE_NAME" pg_isready -U "$OLD_PG_USER" -d postgres >/dev/null 2>&1; then
         ready=true; break
       fi
       sleep 1
     done
     if ! $ready; then
-      error "Postgres não ficou pronto a tempo. Nada foi renomeado."
-      error "Stack parada. Restaure o .env de $BACKUP_DIR/env.$TS.bak se necessário."
+      error "Postgres (trust) não ficou pronto. Nada foi alterado."
+      docker rm -f "$PG_MIGRATE_NAME" >/dev/null 2>&1 || true
       exit 1
     fi
 
-    # Renomeia só o que difere (ALTER para o mesmo nome falha).
+    # Renomeia só o que difere (ALTER para o mesmo nome falha) e aplica a senha.
     sql=""
-    if [[ "$OLD_PG_DB" != "$NEW_PG_DB" ]]; then
+    if $pg_db_changed; then
       sql+="SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$OLD_PG_DB' AND pid <> pg_backend_pid();"$'\n'
       sql+="ALTER DATABASE \"$OLD_PG_DB\" RENAME TO \"$NEW_PG_DB\";"$'\n'
     fi
-    if [[ "$OLD_PG_USER" != "$NEW_PG_USER" ]]; then
+    if $pg_role_changed; then
       sql+="ALTER ROLE \"$OLD_PG_USER\" RENAME TO \"$NEW_PG_USER\";"$'\n'
     fi
+    if ! $KEEP_DB_PASSWORD; then
+      sql+="\\set pw \`printf '%s' \"\$NP\"\`"$'\n'
+      sql+="ALTER ROLE \"$NEW_PG_USER\" WITH PASSWORD :'pw';"$'\n'
+    fi
+    sql+="\\echo MIGRATE_DB_OK"$'\n'
 
-    if ! printf '%s' "$sql" | docker exec -i "${NEW_PROJECT}-pg" psql -U "$OLD_PG_USER" -d postgres -v ON_ERROR_STOP=1 >>"$LOG_FILE" 2>&1
-    then
-      error "Falha ao renomear role/db. A stack está parada e os volumes antigos estão intactos."
-      error "Restaure o .env de $BACKUP_DIR/env.$TS.bak e suba o projeto antigo para voltar atrás."
+    if ! printf '%s' "$sql" | docker exec -i -e NP="$FINAL_PW" "$PG_MIGRATE_NAME" \
+          psql -U "$OLD_PG_USER" -d postgres -v ON_ERROR_STOP=1 >>"$LOG_FILE" 2>&1; then
+      error "Falha ao ajustar role/db/senha. Volumes antigos intactos."
+      error "Restaure o .env de $BACKUP_DIR/env.$TS.bak para voltar atrás."
+      docker rm -f "$PG_MIGRATE_NAME" >/dev/null 2>&1 || true
       exit 1
     fi
-    ok "Banco ajustado: db $OLD_PG_DB → $NEW_PG_DB; role $OLD_PG_USER → $NEW_PG_USER."
+    ok "Banco ajustado: db $OLD_PG_DB → $NEW_PG_DB; role $OLD_PG_USER → $NEW_PG_USER; senha alinhada ao .env."
   fi
 
-  run docker compose down
+  run docker rm -f "$PG_MIGRATE_NAME" || true
+
+  # Regrava a senha no .env se foi regenerada
+  if ! $KEEP_DB_PASSWORD && [[ "$FINAL_PW" != "$CUR_PW" ]]; then
+    if ! $DRY_RUN; then update_env "POSTGRES_PASSWORD" "$FINAL_PW"; fi
+    ROTATE_PW=true
+  fi
+
+  # Verificação: sobe só o Postgres e testa login TCP com a senha final do .env
+  if ! $DRY_RUN; then
+    info "Verificando login TCP do Postgres com a senha do .env…"
+    run docker compose up -d postgres
+    pg_ready=false
+    for _ in $(seq 1 60); do
+      if docker exec "${NEW_PROJECT}-pg" pg_isready -U "$NEW_PG_USER" -d "$NEW_PG_DB" >/dev/null 2>&1; then
+        pg_ready=true; break
+      fi
+      sleep 1
+    done
+    if ! $pg_ready; then
+      error "Postgres não subiu para a verificação."
+      exit 1
+    fi
+    if PGPASSWORD="$FINAL_PW" docker run --rm -e PGPASSWORD --network host "$PG_IMAGE" \
+         psql -h 127.0.0.1 -p 7001 -U "$NEW_PG_USER" -d "$NEW_PG_DB" -c 'select 1' >>"$LOG_FILE" 2>&1; then
+      ok "Login TCP com a senha do .env: OK."
+    else
+      error "Login TCP FALHOU com a senha do .env — abortando antes de subir a stack."
+      error "Restaure o .env de $BACKUP_DIR/env.$TS.bak para voltar atrás."
+      run docker compose down
+      exit 1
+    fi
+    run docker compose down
+  fi
+else
+  ok "Postgres já é easyphone e a senha é segura — nada a ajustar."
 fi
 
 # ─────────────────────────────────────────────────────────────────────
@@ -427,6 +547,10 @@ fi
 echo "$TS" > "$STATE_DIR/last_success"
 echo
 ok "Migração concluída."
+if $ROTATE_PW; then
+  echo
+  printf '  Senha nova do Postgres (guarde em local seguro): %s\n' "$FINAL_PW"
+fi
 echo
 echo -e "  ${BOLD}Próximos passos:${NC}"
 echo -e "    1) Suba a stack:  ${BOLD}./run.sh${NC}  (ou ${BOLD}docker compose up -d --force-recreate${NC})"

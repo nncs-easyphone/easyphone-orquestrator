@@ -127,6 +127,7 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 |---|---|
 | `init.sh` | Script de provisionamento (Docker, ghcr, iptables, firewall, compose) |
 | `run.sh` | Script para subir a stack |
+| `migrate-to-easyphone.sh` | Migra uma instalação antiga (`easyfone` → `easyphone`): volumes, role/db e firewall, alinhando a senha do Postgres ao `.env` |
 | `firewall-rules.sh` | Regras de firewall com chain dedicada `EASYPHONE_INPUT` |
 | `systemd/easyphone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
 | `whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `firewall-rules.sh` |
@@ -417,6 +418,25 @@ turnutils_uclient -T -u easyphone -w "$COTURN_PASS" pbx.exemplo.com
 ```
 
 Verifique também se a faixa de relay `49152-65535/udp` e a faixa de RTP `10000-20000/udp` estão liberadas no firewall do provedor de nuvem (além do da VM).
+
+## Migração de instalação antiga (`easyfone` → `easyphone`)
+
+Em uma instalação criada pelo orquestrador antigo, rode **depois do `git pull`** e
+**antes** de subir a stack:
+
+```bash
+sudo bash migrate-to-easyphone.sh --dry-run   # confere o plano (nada é alterado)
+sudo bash migrate-to-easyphone.sh             # executa a migração
+./run.sh                                       # sobe a stack
+sudo bash migrate-to-easyphone.sh --cleanup    # remove o resíduo antigo (após validar)
+```
+
+O script detecta o projeto/volumes reais pelo Docker, copia os volumes para os
+nomes-alvo, renomeia banco/role e **alinha a senha da role ao `POSTGRES_PASSWORD`
+do `.env`** — regenerando-a em hex automaticamente se tiver caracteres que quebram
+ODBC/URL (ex.: `+`), e validando o login TCP antes de encerrar. Flags:
+`--dry-run`, `--password <valor>`, `--keep-db-password`, `--skip-db`,
+`--skip-firewall`, `--cleanup`, `--force`, `--old-project <nome>`.
 
 ## TODO
 
