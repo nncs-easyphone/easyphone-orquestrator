@@ -6,10 +6,16 @@
 # res_pjsip_transport_websocket do Asterisk (fixo, não configurável). Assim o
 # cliente conecta em wss://pbx.${DOMAIN} sem informar caminho, e de quebra o
 # servidor HTTP do Asterisk (/ari, /httpstatus) não fica alcançável por aqui.
+#
+# O router só casa handshakes WebSocket (header Upgrade). Sem essa condição,
+# qualquer GET comum em pbx.${DOMAIN} (navegador, favicon, scanner, monitor de
+# uptime) virava `GET /ws` sem Upgrade e enchia o log do Asterisk com
+# "could not be accepted - did not request WebSocket". Agora o próprio Traefik
+# responde 404 e a requisição nem chega ao Asterisk.
 http:
   routers:
     asterisk-wss:
-      rule: "Host(`pbx.${DOMAIN}`)"
+      rule: "Host(`pbx.${DOMAIN}`) && HeaderRegexp(`Upgrade`, `(?i)^websocket$`)"
       entrypoints: websecure
       middlewares:
         - asterisk-ws-path@file
