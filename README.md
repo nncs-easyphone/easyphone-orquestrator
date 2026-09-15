@@ -1,6 +1,6 @@
-# EasyFone Orchestrator
+# EasyPhone Orchestrator
 
-Provisionamento e inicialização da stack EasyFone (Postgres, PgBouncer, API, Web, Asterisk, Coturn) em uma VM vazia.
+Provisionamento e inicialização da stack EasyPhone (Postgres, PgBouncer, API, Web, Asterisk, Coturn) em uma VM vazia.
 
 ## Requisitos
 
@@ -19,8 +19,8 @@ Provisionamento e inicialização da stack EasyFone (Postgres, PgBouncer, API, W
 ## 1. Clone o repositório
 
 ```bash
-git clone <URL_DO_REPOSITORIO> /opt/easyfone
-cd /opt/easyfone/easyphone-orquestrator
+git clone <URL_DO_REPOSITORIO> /opt/easyphone
+cd /opt/easyphone/easyphone-orquestrator
 ```
 
 ## 2. Execute o init
@@ -38,7 +38,7 @@ O script interativamente:
 | **1/6** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
 | **2/6** | Autentica no ghcr.io (valida o token com um pull real) |
 | **3/6** | Instala iptables e iptables-persistent |
-| **4/6** | Instala o serviço `easyfone-firewall` (reaplica o firewall a cada boot, depois do Docker) e aplica as regras (chain dedicada `EASYFONE_INPUT`) |
+| **4/6** | Instala o serviço `easyphone-firewall` (reaplica o firewall a cada boot, depois do Docker) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
 | **5/6** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
 
 > **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
@@ -52,7 +52,7 @@ As imagens da stack estão no GitHub Container Registry (`ghcr.io/nncs-easyphone
 3. Guarde o token — o `init.sh` vai pedi-lo durante a execução
 
 Cada instalação exibe o log completo dentro de uma caixa `┌─ ─┐`.  
-O log completo da execução fica salvo em **`/tmp/easyfone-orquestrator-install.log`**.
+O log completo da execução fica salvo em **`/tmp/easyphone-orquestrator-install.log`**.
 
 > Se o Docker já estiver instalado, o script pergunta se deseja reinstalar.  
 > O `systemctl enable docker` é executado **sempre** que o Docker está presente.
@@ -102,7 +102,7 @@ Em seguida **reinicie o Asterisk** — este passo não é opcional:
 
 ```bash
 docker compose restart asterisk
-docker exec easyfone-asterisk asterisk -rx 'pjsip show transports'   # transport-wss deve aparecer
+docker exec easyphone-asterisk asterisk -rx 'pjsip show transports'   # transport-wss deve aparecer
 ```
 
 A API executa `module reload res_pjsip` após gravar o arquivo, mas o reload do PJSIP recarrega endpoints, AORs e auths e **não cria transportes** — transporte novo só entra em memória com restart. Sem isso o `[transport-wss]` existe no arquivo e no banco, mas não no Asterisk, e nenhum ramal WebRTC registra.
@@ -127,9 +127,9 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 |---|---|
 | `init.sh` | Script de provisionamento (Docker, ghcr, iptables, firewall, compose) |
 | `run.sh` | Script para subir a stack |
-| `firewall-rules.sh` | Regras de firewall com chain dedicada `EASYFONE_INPUT` |
-| `systemd/easyfone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
-| `whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYFONE_WHITELIST`), encadeada pelo `firewall-rules.sh` |
+| `firewall-rules.sh` | Regras de firewall com chain dedicada `EASYPHONE_INPUT` |
+| `systemd/easyphone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
+| `whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `firewall-rules.sh` |
 | `whitelist.conf.example` | Template da lista de origens permitidas — copie para `whitelist.conf` para ativar |
 | `.env` | Configuração de ambiente (copie de `.env.example`) |
 | `.env.example` | Template do ambiente |
@@ -172,24 +172,24 @@ cp whitelist.conf.example whitelist.conf
 sudo bash firewall-rules.sh
 ```
 
-A existência do `whitelist.conf` é o que ativa — sem ele o `whitelist-rules.sh` não faz nada. O `firewall-rules.sh` o encadeia automaticamente, então a whitelist também é reaplicada no boot pelo `easyfone-firewall.service`.
+A existência do `whitelist.conf` é o que ativa — sem ele o `whitelist-rules.sh` não faz nada. O `firewall-rules.sh` o encadeia automaticamente, então a whitelist também é reaplicada no boot pelo `easyphone-firewall.service`.
 
-**Como funciona.** Uma chain `EASYFONE_WHITELIST` é avaliada **antes** da `EASYFONE_INPUT`: a primeira filtra por **origem**, a segunda por **porta**.
+**Como funciona.** Uma chain `EASYPHONE_WHITELIST` é avaliada **antes** da `EASYPHONE_INPUT`: a primeira filtra por **origem**, a segunda por **porta**.
 
 ```
 INPUT (policy DROP)
   1  ESTABLISHED,RELATED  → ACCEPT
   2  -i lo                → ACCEPT
   3  icmp echo-request    → ACCEPT
-  4  -j EASYFONE_WHITELIST   ← origem do ALLOWED faz ACCEPT; o resto vai para LOG + DROP
-  5  -j EASYFONE_INPUT       ← filtro por porta (só para quem não é do ALLOWED)
+  4  -j EASYPHONE_WHITELIST   ← origem do ALLOWED faz ACCEPT; o resto vai para LOG + DROP
+  5  -j EASYPHONE_INPUT       ← filtro por porta (só para quem não é do ALLOWED)
 ```
 
 **⚠️ Origem no `ALLOWED` = acesso total.** A chain faz `ACCEPT`, então esses IPs saem da INPUT ali mesmo e **não** passam pelo filtro de portas: alcançam qualquer porta do host, inclusive AMI (5038), ARI (8088), WSS (8089) e Postgres (7001). Para eles, a proteção do AMI passa a ser apenas a ACL do `manager.conf`.
 
-Isso é deliberado. A `EASYFONE_INPUT` libera um conjunto fixo de portas (22, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e **não** cobre SIP em TCP/5060 nem portas 50xx alternativas — com `RETURN`, um tronco já presente na whitelist continuava sendo descartado por falar numa porta fora dessa lista, uma falha silenciosa e difícil de diagnosticar. Trate o `whitelist.conf` como lista de **hosts confiáveis**, não como filtro de borda.
+Isso é deliberado. A `EASYPHONE_INPUT` libera um conjunto fixo de portas (22, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e **não** cobre SIP em TCP/5060 nem portas 50xx alternativas — com `RETURN`, um tronco já presente na whitelist continuava sendo descartado por falar numa porta fora dessa lista, uma falha silenciosa e difícil de diagnosticar. Trate o `whitelist.conf` como lista de **hosts confiáveis**, não como filtro de borda.
 
-As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem restritos às portas da `EASYFONE_INPUT`.
+As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem restritos às portas da `EASYPHONE_INPUT`.
 
 **O que a whitelist NÃO alcança:** as portas 80/443 do Traefik. Tráfego de container publicado não passa pela INPUT — vai por `nat/PREROUTING` → `FORWARD` → chains `DOCKER-*`. `app.`, `api.` e o desafio TLS do Let's Encrypt seguem abertos ao mundo, de propósito.
 
@@ -201,8 +201,8 @@ As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem res
 
 ```bash
 # Ver a chain e o que ela está bloqueando
-sudo iptables -L EASYFONE_WHITELIST -n -v --line-numbers
-sudo journalctl -k | grep EASYFONE-WL-DROP
+sudo iptables -L EASYPHONE_WHITELIST -n -v --line-numbers
+sudo journalctl -k | grep EASYPHONE-WL-DROP
 
 # Desfazer
 sudo bash whitelist-rules.sh --remove
@@ -218,23 +218,23 @@ Antes de mexer em qualquer regra, colete o estado do host:
 sudo bash diagnose-firewall.sh > diagnostico-$(date +%F-%H%M).txt
 ```
 
-O script é **somente leitura**. Ele verifica firewalls concorrentes, a integridade das chains `DOCKER-*` e `EASYFONE_*`, a ocupação da tabela de conntrack, os bloqueios registrados no kernel e o estado do PJSIP. Se o problema for intermitente, colete também **durante** a queda e compare as duas saídas.
+O script é **somente leitura**. Ele verifica firewalls concorrentes, a integridade das chains `DOCKER-*` e `EASYPHONE_*`, a ocupação da tabela de conntrack, os bloqueios registrados no kernel e o estado do PJSIP. Se o problema for intermitente, colete também **durante** a queda e compare as duas saídas.
 
 ### Tudo cai (web, SIP e SSH) e só volta reiniciando o Docker
 
 Duas causas conhecidas, nessa ordem de probabilidade:
 
-**1. Firewall concorrente no host.** Se `easyphone-firewall.service` (com `p`) estiver instalado além do `easyfone-firewall.service` (com `f`), o `ExecStop` dele roda `iptables -t nat -F`, que apaga o DNAT do Docker — as portas publicadas só voltam com `systemctl restart docker`. O `iptables -F INPUT` do script dele ainda derruba os jumps das chains `EASYFONE_*`. Confirme e remova:
+**1. Firewall concorrente no host.** Qualquer serviço que rode `iptables -t nat -F` ou `iptables -F INPUT` apaga o DNAT do Docker — as portas publicadas só voltam com `systemctl restart docker` — e derruba os jumps das chains `EASYPHONE_*`. Verifique `ufw`, `firewalld`, `netfilter-persistent` e resíduos de guias antigos:
 
 ```bash
-systemctl status easyphone-firewall.service
-ls -l /opt/easyphone/firewall/
-journalctl -k | grep "FIREWALL DROP"     # qualquer linha confirma que ele rodou
+for u in ufw firewalld netfilter-persistent; do
+  printf '%-22s enabled=%s active=%s\n' "$u" \
+    "$(systemctl is-enabled "$u" 2>/dev/null)" "$(systemctl is-active "$u" 2>/dev/null)"
+done
+ls -l /opt/easyphone/firewall/ 2>/dev/null     # resíduo de guia antigo
+journalctl -k | grep "FIREWALL DROP"           # qualquer linha confirma que um firewall antigo rodou
 
-systemctl disable --now easyphone-firewall.service   # ⚠ o stop dispara o disable.sh
-rm -f /etc/systemd/system/easyphone-firewall.service
-systemctl daemon-reload
-systemctl restart docker
+sudo systemctl disable --now <servico-concorrente>
 sudo bash firewall-rules.sh
 ```
 
@@ -245,7 +245,7 @@ cat /proc/sys/net/netfilter/nf_conntrack_count /proc/sys/net/netfilter/nf_conntr
 dmesg | grep -i "conntrack.*table full"
 ```
 
-Se a ocupação passar de ~80% sob carga, eleve o limite e reduza os timeouts UDP em `/etc/sysctl.d/99-easyfone-conntrack.conf`, ajustando os valores à RAM do host (cada entrada custa ~300 bytes).
+Se a ocupação passar de ~80% sob carga, eleve o limite e reduza os timeouts UDP em `/etc/sysctl.d/99-easyphone-conntrack.conf`, ajustando os valores à RAM do host (cada entrada custa ~300 bytes).
 
 ### `docker compose up` falha com `iptables: No chain/target/match by that name`
 
@@ -263,7 +263,7 @@ cd /opt/easyphone-orquestrator
 docker compose down --remove-orphans
 docker network prune -f
 systemctl restart docker         # ⚠ derruba containers e chamadas em curso
-bash firewall-rules.sh           # recria a EASYFONE_INPUT e o jump da INPUT
+bash firewall-rules.sh           # recria a EASYPHONE_INPUT e o jump da INPUT
 docker compose up -d
 ```
 
@@ -271,15 +271,15 @@ docker compose up -d
 
 ```bash
 grep -c DOCKER /etc/iptables/rules.v4          # 0 = snapshot incompleto
-systemctl is-enabled easyfone-firewall         # deve estar "enabled"
+systemctl is-enabled easyphone-firewall         # deve estar "enabled"
 systemctl disable netfilter-persistent         # o unit acima substitui a função
 ```
 
-O `easyfone-firewall.service` (instalado na etapa 4/6 do `init.sh`) roda depois do `docker.service` e reaplica o `firewall-rules.sh` a cada boot, dispensando o snapshot.
+O `easyphone-firewall.service` (instalado na etapa 4/6 do `init.sh`) roda depois do `docker.service` e reaplica o `firewall-rules.sh` a cada boot, dispensando o snapshot.
 
 ### ⚠️ Nunca rode `iptables -F` neste host
 
-Nem `iptables -F INPUT`. A INPUT termina em DROP e carrega o jump para a `EASYFONE_INPUT`: esvaziá-la derruba SIP, RTP e AMI na hora, porque Asterisk e Coturn rodam em `network_mode: host` e o tráfego deles chega pela INPUT. Scripts de whitelist que começam com `-F INPUT` quebram o PBX toda vez que rodam — regras extras devem ser **acrescentadas** (na `EASYFONE_INPUT` para host networking, ou na `DOCKER-USER` para o tráfego dos containers). Para alterar o firewall, edite o `firewall-rules.sh` e rode-o de novo; ele é idempotente.
+Nem `iptables -F INPUT`. A INPUT termina em DROP e carrega o jump para a `EASYPHONE_INPUT`: esvaziá-la derruba SIP, RTP e AMI na hora, porque Asterisk e Coturn rodam em `network_mode: host` e o tráfego deles chega pela INPUT. Scripts de whitelist que começam com `-F INPUT` quebram o PBX toda vez que rodam — regras extras devem ser **acrescentadas** (na `EASYPHONE_INPUT` para host networking, ou na `DOCKER-USER` para o tráfego dos containers). Para alterar o firewall, edite o `firewall-rules.sh` e rode-o de novo; ele é idempotente.
 
 ### `docker compose pull` falha com "unauthorized"
 
@@ -290,7 +290,7 @@ O token ghcr expirou ou não tem permissão. Reexecute o `sudo bash init.sh` e f
 Verifique se o firewall foi aplicado:
 
 ```bash
-sudo iptables -L EASYFONE_INPUT -n --line-numbers
+sudo iptables -L EASYPHONE_INPUT -n --line-numbers
 ```
 
 Se a chain estiver vazia, reaplique:
@@ -332,17 +332,17 @@ curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" \
      -H "Sec-WebSocket-Protocol: sip" https://pbx.exemplo.com/
 
 # 4. O transporte wss existe no Asterisk?
-docker exec easyfone-asterisk asterisk -rx 'pjsip show transports'
+docker exec easyphone-asterisk asterisk -rx 'pjsip show transports'
 
 # 5. O ramal tem os atributos WebRTC?
-docker exec easyfone-asterisk asterisk -rx 'pjsip show endpoint 1001' | grep -Ei 'webrtc|ice|avpf|dtls'
+docker exec easyphone-asterisk asterisk -rx 'pjsip show endpoint 1001' | grep -Ei 'webrtc|ice|avpf|dtls'
 
 # 6. SIP ao vivo — 403 aqui significa ACL: veja a seção 5.2 (campo Redes)
-docker exec easyfone-asterisk asterisk -rx 'pjsip set logger on'
-docker logs -f easyfone-asterisk
+docker exec easyphone-asterisk asterisk -rx 'pjsip set logger on'
+docker logs -f easyphone-asterisk
 ```
 
-Se o passo 3 falhar com 502, quase sempre é o firewall: a porta 8089 precisa estar liberada na chain `EASYFONE_INPUT` via interface de bridge. Reaplique com `sudo bash firewall-rules.sh`.
+Se o passo 3 falhar com 502, quase sempre é o firewall: a porta 8089 precisa estar liberada na chain `EASYPHONE_INPUT` via interface de bridge. Reaplique com `sudo bash firewall-rules.sh`.
 
 ### STUN não responde
 
@@ -358,22 +358,22 @@ sudo ss -ulpn | grep 3478
 systemctl status coturn 2>/dev/null | head -3   # coturn do apt disputando a porta?
 
 # 3. O que o Coturn diz ao subir?
-docker logs easyfone-coturn --tail 80
+docker logs easyphone-coturn --tail 80
 
 # 4. A config foi montada como ARQUIVO e não como diretório?
 #    Bind mount de caminho inexistente faz o Docker criar um diretório, e aí o
 #    Coturn sobe com defaults — sem realm e sem credenciais.
-docker exec easyfone-coturn ls -la /etc/coturn/turnserver.conf
-docker exec easyfone-coturn head -20 /etc/coturn/turnserver.conf
+docker exec easyphone-coturn ls -la /etc/coturn/turnserver.conf
+docker exec easyphone-coturn head -20 /etc/coturn/turnserver.conf
 
 # 5. STUN de dentro da VM (separa "problema do Coturn" de "problema de rede")
-docker exec easyfone-coturn turnutils_stunclient 127.0.0.1
+docker exec easyphone-coturn turnutils_stunclient 127.0.0.1
 
 # 6. STUN de fora (outra máquina)
 turnutils_stunclient pbx.exemplo.com
 
 # 7. A regra de firewall existe e está contando pacotes?
-sudo iptables -L EASYFONE_INPUT -n -v --line-numbers | grep -E '3478|5349'
+sudo iptables -L EASYPHONE_INPUT -n -v --line-numbers | grep -E '3478|5349'
 ```
 
 | Onde falha | Causa provável | Ação |
@@ -392,8 +392,8 @@ O par 5/6 é o que decide entre Coturn e rede — se quiser encurtar, comece por
 Esperado até o certificado de `pbx.${DOMAIN}` existir. O Coturn **não** aborta sem certificado: loga `cannot start TLS and DTLS listeners` e segue servindo STUN e TURN na 3478.
 
 ```bash
-docker exec easyfone-certs-dumper ls -l /certs/pbx.exemplo.com/   # certificate.pem + privatekey.pem
-docker logs easyfone-coturn | grep -Ei 'realm|listener|TLS'
+docker exec easyphone-certs-dumper ls -l /certs/pbx.exemplo.com/   # certificate.pem + privatekey.pem
+docker logs easyphone-coturn | grep -Ei 'realm|listener|TLS'
 ```
 
 O Coturn lê o certificado **apenas no arranque**. Depois que os arquivos aparecerem, é preciso reiniciá-lo uma vez — e o mesmo vale a cada renovação do Let's Encrypt:
@@ -410,7 +410,7 @@ Problema de mídia (ICE/RTP), não de sinalização:
 
 ```bash
 # stunaddr deve apontar para o Coturn público, nunca 127.0.0.1
-docker exec easyfone-asterisk grep stunaddr /etc/asterisk/rtp.conf
+docker exec easyphone-asterisk grep stunaddr /etc/asterisk/rtp.conf
 
 # TURN autenticando com as credenciais do .env
 turnutils_uclient -T -u easyphone -w "$COTURN_PASS" pbx.exemplo.com

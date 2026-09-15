@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# EasyFone Orchestrator — Script de inicialização da stack
+# EasyPhone Orchestrator — Script de inicialização da stack
 # =========================================================
 # Sobe a stack completa (Postgres, API, Web, Asterisk)
 # respeitando a variável USE_BUILD do .env.
@@ -37,7 +37,7 @@ ask_no() {
 # ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
 # ─────────────────────────────────────────────────────────────────────
-LOGFILE="/tmp/easyfone-orquestrator-run.log"
+LOGFILE="/tmp/easyphone-orquestrator-run.log"
 : > "$LOGFILE"
 
 box_start() {
@@ -131,7 +131,7 @@ else
   box_end
 fi
 
-ok "Stack EasyFone iniciada."
+ok "Stack EasyPhone iniciada."
 echo
 echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com} (web)  /  https://api.${DOMAIN:-exemplo.com} (api)  /  https://pbx.${DOMAIN:-exemplo.com} (wss)"
 echo -e "  ${GREEN}→${NC} Postgres:   localhost:${PG_PORT_HOST:-7001}  (interno)"

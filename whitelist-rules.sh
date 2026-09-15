@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 #
-# EasyFone Orchestrator — Whitelist de origens (iptables)
+# EasyPhone Orchestrator — Whitelist de origens (iptables)
 # Uso: sudo bash whitelist-rules.sh [--remove] [--force]
 #
 # Restringe POR ORIGEM o tráfego que chega na chain INPUT, usando uma chain
-# dedicada (EASYFONE_WHITELIST) avaliada ANTES da EASYFONE_INPUT:
+# dedicada (EASYPHONE_WHITELIST) avaliada ANTES da EASYPHONE_INPUT:
 #
 #   INPUT (policy DROP)
 #     1  ESTABLISHED,RELATED  → ACCEPT
 #     2  -i lo                → ACCEPT
 #     3  icmp echo-request    → ACCEPT
-#     4  -j EASYFONE_WHITELIST   ← este script: filtra por ORIGEM
-#     5  -j EASYFONE_INPUT       ← firewall-rules.sh: filtra por PORTA
+#     4  -j EASYPHONE_WHITELIST   ← este script: filtra por ORIGEM
+#     5  -j EASYPHONE_INPUT       ← firewall-rules.sh: filtra por PORTA
 #
 # ORIGEM PERMITIDA = ACESSO TOTAL. A chain devolve ACCEPT para os CIDRs do
 # ALLOWED: o pacote sai da INPUT ali mesmo e NÃO passa pelo filtro de portas da
-# EASYFONE_INPUT. Um IP da lista alcança QUALQUER porta do host, incluindo AMI
+# EASYPHONE_INPUT. Um IP da lista alcança QUALQUER porta do host, incluindo AMI
 # (5038), ARI (8088), WSS (8089) e Postgres (7001).
 #
-# Foi uma decisão deliberada: a EASYFONE_INPUT libera um conjunto fixo de portas
+# Foi uma decisão deliberada: a EASYPHONE_INPUT libera um conjunto fixo de portas
 # (22, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e NÃO cobre,
 # por exemplo, SIP em TCP/5060 nem portas 50xx alternativas. Com RETURN, um
 # tronco legítimo já na whitelist continuava sendo descartado por falar numa
@@ -64,9 +64,9 @@ ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-WHITELIST_CHAIN="EASYFONE_WHITELIST"
-PORTS_CHAIN="EASYFONE_INPUT"
-LOG_PREFIX="EASYFONE-WL-DROP: "
+WHITELIST_CHAIN="EASYPHONE_WHITELIST"
+PORTS_CHAIN="EASYPHONE_INPUT"
+LOG_PREFIX="EASYPHONE-WL-DROP: "
 CONF_FILE="$(dirname "$(readlink -f "$0")")/whitelist.conf"
 
 MODE="apply"
@@ -180,10 +180,10 @@ iptables -F "$WHITELIST_CHAIN"
 # Bridges do Docker primeiro: api/seed alcançam AMI/ARI e o Traefik alcança o WSS
 # via host.docker.internal, e esse tráfego entra pela interface br-<hash>. Casar
 # pela interface cobre redes fora da faixa 172.16/14 (ex.: 172.20.x) e sobrevive
-# à recriação da rede — mesmo critério já usado na EASYFONE_INPUT.
+# à recriação da rede — mesmo critério já usado na EASYPHONE_INPUT.
 #
 # Aqui é RETURN, não ACCEPT: os containers seguem restritos ao conjunto de portas
-# da EASYFONE_INPUT (que já os libera para AMI/ARI/WSS via -i br+). Só as origens
+# da EASYPHONE_INPUT (que já os libera para AMI/ARI/WSS via -i br+). Só as origens
 # explicitamente listadas no ALLOWED ganham acesso irrestrito.
 iptables -A "$WHITELIST_CHAIN" -i br+ -j RETURN
 echo -e "  ${GREEN}✓${NC} bridges do Docker (-i br+, segue para o filtro de portas)"
@@ -202,7 +202,7 @@ ok "Chain $WHITELIST_CHAIN montada (${#ALLOWED[@]} origens + bridges do Docker).
 warn "As ${#ALLOWED[@]} origens do ALLOWED têm acesso a TODAS as portas do host (inclusive AMI/Postgres)."
 
 # ── Posiciona o jump na INPUT ────────────────────────────────────────
-#     Precisa vir ANTES da EASYFONE_INPUT: aquela chain aceita por porta sem olhar
+#     Precisa vir ANTES da EASYPHONE_INPUT: aquela chain aceita por porta sem olhar
 #     a origem, então um jump posterior nunca veria o tráfego que ela liberou.
 while iptables -C INPUT -j "$WHITELIST_CHAIN" &>/dev/null; do
   iptables -D INPUT -j "$WHITELIST_CHAIN"

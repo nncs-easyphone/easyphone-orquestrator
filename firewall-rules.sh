@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# EasyFone Orchestrator — Regras de Firewall (iptables)
+# EasyPhone Orchestrator — Regras de Firewall (iptables)
 # Uso: sudo bash firewall-rules.sh
 #
 # Define regras de entrada para as portas do projeto usando
-# uma chain dedicada (EASYFONE_INPUT) para não interferir
+# uma chain dedicada (EASYPHONE_INPUT) para não interferir
 # nas regras geridas pelo Docker.
 #
 # NOTA: FORWARD fica ACCEPT para não quebrar o roteamento de redes do Docker.
 # IPv6 deve estar desabilitado no kernel; este script não configura ip6tables.
 #
 # ⚠️ NUNCA use `iptables -F` (nem `-F INPUT`) neste host. A INPUT termina em DROP
-# e carrega o jump para a EASYFONE_INPUT: esvaziá-la derruba SIP/RTP/AMI na hora,
+# e carrega o jump para a EASYPHONE_INPUT: esvaziá-la derruba SIP/RTP/AMI na hora,
 # porque o Asterisk e o Coturn rodam em host networking e seu tráfego chega pela
 # INPUT. Para mudar regras, edite este script e rode-o de novo — ele é
 # idempotente e o único `-F` que executa é na sua própria chain.
@@ -37,7 +37,7 @@ fi
 
 cat << "EOF"
   ╔══════════════════════════════════════════════╗
-  ║   EasyFone Orchestrator — Firewall Rules     ║
+  ║   EasyPhone Orchestrator — Firewall Rules     ║
   ╚══════════════════════════════════════════════╝
 EOF
 echo
@@ -62,7 +62,7 @@ echo
 #   2. iptables     — porta 5038 só aceita tráfego vindo de interfaces br+ (Docker)
 # PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
 #
-# Origens do whitelist.conf não passam por esta lista: a EASYFONE_WHITELIST faz
+# Origens do whitelist.conf não passam por esta lista: a EASYPHONE_WHITELIST faz
 # ACCEPT antes, dando acesso total a elas (ver whitelist-rules.sh).
 PORTS_TCP=(22 80 443 5061 3478 5349)
 PORTS_UDP=(5060 3478 5349)
@@ -90,11 +90,11 @@ if pidof dockerd &>/dev/null && ! iptables -n -L DOCKER-USER &>/dev/null; then
   warn "    systemctl restart docker   # ⚠ derruba containers e chamadas em curso"
 fi
 
-# ── 1. Cria e limpa a chain dedicada EASYFONE_INPUT ──────────────────
+# ── 1. Cria e limpa a chain dedicada EASYPHONE_INPUT ──────────────────
 #     (Assim nunca mexemos nas regras do Docker)
-iptables -N EASYFONE_INPUT 2>/dev/null || true
-iptables -F EASYFONE_INPUT
-ok "Chain EASYFONE_INPUT limpa."
+iptables -N EASYPHONE_INPUT 2>/dev/null || true
+iptables -F EASYPHONE_INPUT
+ok "Chain EASYPHONE_INPUT limpa."
 
 # ── 2. Conexões estabelecidas / related ──────────────────────────────
 #     PRIMEIRO liberamos conexões ativas (ex: SSH atual) ANTES de mudar
@@ -131,33 +131,33 @@ fi
 ok "ICMP echo-request liberado."
 
 # ── 6. Jump da INPUT para a chain dedicada ───────────────────────────
-if ! iptables -C INPUT -j EASYFONE_INPUT &>/dev/null; then
-  iptables -A INPUT -j EASYFONE_INPUT
+if ! iptables -C INPUT -j EASYPHONE_INPUT &>/dev/null; then
+  iptables -A INPUT -j EASYPHONE_INPUT
 fi
-ok "Tráfego da stack encaminhado para chain EASYFONE_INPUT."
+ok "Tráfego da stack encaminhado para chain EASYPHONE_INPUT."
 
 # ── 7. Portas TCP (regras na chain dedicada) ─────────────────────────
-info "Liberando portas TCP na EASYFONE_INPUT…"
+info "Liberando portas TCP na EASYPHONE_INPUT…"
 for port in "${PORTS_TCP[@]}"; do
-  iptables -A EASYFONE_INPUT -p tcp --dport "$port" -j ACCEPT
+  iptables -A EASYPHONE_INPUT -p tcp --dport "$port" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} TCP/$port"
 done
 
 # ── 8. Portas UDP (regras na chain dedicada) ─────────────────────────
-info "Liberando portas UDP na EASYFONE_INPUT…"
+info "Liberando portas UDP na EASYPHONE_INPUT…"
 for port in "${PORTS_UDP[@]}"; do
-  iptables -A EASYFONE_INPUT -p udp --dport "$port" -j ACCEPT
+  iptables -A EASYPHONE_INPUT -p udp --dport "$port" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} UDP/$port"
 done
 
 # ── 9. Faixa de RTP (mídia) ─────────────────────────────────────────
-info "Liberando faixa de RTP (UDP ${RTP_UDP_RANGE}) na EASYFONE_INPUT…"
-iptables -A EASYFONE_INPUT -p udp --dport "$RTP_UDP_RANGE" -j ACCEPT
+info "Liberando faixa de RTP (UDP ${RTP_UDP_RANGE}) na EASYPHONE_INPUT…"
+iptables -A EASYPHONE_INPUT -p udp --dport "$RTP_UDP_RANGE" -j ACCEPT
 echo -e "  ${GREEN}✓${NC} UDP/${RTP_UDP_RANGE} (RTP)"
 
 # ── 9a. Faixa de relay Coturn (mídia TURN) ──────────────────────────
-info "Liberando faixa de relay Coturn (UDP 49152-65535) na EASYFONE_INPUT…"
-iptables -A EASYFONE_INPUT -p udp --dport 49152:65535 -j ACCEPT
+info "Liberando faixa de relay Coturn (UDP 49152-65535) na EASYPHONE_INPUT…"
+iptables -A EASYPHONE_INPUT -p udp --dport 49152:65535 -j ACCEPT
 echo -e "  ${GREEN}✓${NC} UDP/49152-65535 (Coturn relay)"
 
 # ── 9b. Serviços internos AMI/ARI/WSS — acessíveis APENAS pela rede dos containers ──
@@ -170,7 +170,7 @@ echo -e "  ${GREEN}✓${NC} UDP/49152-65535 (Coturn relay)"
 PORTS_INTERNAL_TCP=(5038 8088 8089)    # AMI, ARI, WSS (WebRTC)
 info "Liberando AMI/ARI/WSS (TCP) apenas via interface de bridge do Docker (-i br+)…"
 for port in "${PORTS_INTERNAL_TCP[@]}"; do
-  iptables -A EASYFONE_INPUT -i br+ -p tcp --dport "$port" -j ACCEPT
+  iptables -A EASYPHONE_INPUT -i br+ -p tcp --dport "$port" -j ACCEPT
   echo -e "  ${GREEN}✓${NC} TCP/$port (interno Docker)"
 done
 
@@ -179,11 +179,11 @@ done
 #     tráfego externo na porta 5038 é explicitamente rejeitado aqui.
 #     A regra -i br+ ACCEPT acima prevalece para tráfego legítimo dos containers.
 info "Bloqueando acesso externo ao AMI (TCP/5038)…"
-iptables -A EASYFONE_INPUT -p tcp --dport 5038 -j DROP
+iptables -A EASYPHONE_INPUT -p tcp --dport 5038 -j DROP
 echo -e "  ${GREEN}✓${NC} TCP/5038 (DROP explícito para tráfego não-bridge)"
 
 # ── 9d. Whitelist de origens (opcional) ──────────────────────────────
-#     Roda depois de montar a EASYFONE_INPUT porque o whitelist-rules.sh insere o
+#     Roda depois de montar a EASYPHONE_INPUT porque o whitelist-rules.sh insere o
 #     jump dele imediatamente ANTES dela — precisa que a chain já esteja na INPUT
 #     para calcular a posição. Sem whitelist.conf o script sai sem fazer nada, e
 #     uma falha dele (ex.: trava de lockout) não pode abortar o firewall.
@@ -200,7 +200,7 @@ fi
 # ── 10. Persistência ─────────────────────────────────────────────────
 #     Duas estratégias, mutuamente exclusivas:
 #
-#     a) easyfone-firewall.service (preferida) — reaplica ESTE script a cada boot,
+#     a) easyphone-firewall.service (preferida) — reaplica ESTE script a cada boot,
 #        depois do docker.service. As chains do Docker sempre existem antes das
 #        nossas regras entrarem, e nada é congelado em arquivo.
 #
@@ -211,8 +211,8 @@ fi
 #        e quebra todo `docker network create`.
 echo
 
-if systemctl is-enabled easyfone-firewall.service &>/dev/null; then
-  ok "easyfone-firewall.service habilitado — as regras são reaplicadas no boot."
+if systemctl is-enabled easyphone-firewall.service &>/dev/null; then
+  ok "easyphone-firewall.service habilitado — as regras são reaplicadas no boot."
   info "Snapshot da tabela dispensado (não congela as chains do Docker)."
 
   if systemctl is-enabled netfilter-persistent &>/dev/null; then

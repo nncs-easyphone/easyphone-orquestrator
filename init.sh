@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# EasyFone Orchestrator — Script de Inicialização do Servidor
+# EasyPhone Orchestrator — Script de Inicialização do Servidor
 # ============================================================
 # Instala e configura Docker, iptables e dependências para
-# rodar a stack completa do EasyFone (Postgres, API, Web, Asterisk).
+# rodar a stack completa do EasyPhone (Postgres, API, Web, Asterisk).
 #
 # Uso: sudo bash init.sh
 
@@ -86,7 +86,7 @@ box_end() {
 cat << "EOF"
 
  ╔══════════════════════════════════════════════════════════╗
- ║        EasyFone Orchestrator — Server Setup              ║
+ ║        EasyPhone Orchestrator — Server Setup              ║
  ║        Docker + iptables + Firewall                      ║
  ╚══════════════════════════════════════════════════════════╝
 EOF
@@ -509,8 +509,8 @@ step "4/6 — Regras de Firewall"
 
 REPO_DIR="$(dirname "$(readlink -f "$0")")"
 FIREWALL_SCRIPT="$REPO_DIR/firewall-rules.sh"
-FIREWALL_UNIT_TEMPLATE="$REPO_DIR/systemd/easyfone-firewall.service.example"
-FIREWALL_UNIT_PATH="/etc/systemd/system/easyfone-firewall.service"
+FIREWALL_UNIT_TEMPLATE="$REPO_DIR/systemd/easyphone-firewall.service.example"
+FIREWALL_UNIT_PATH="/etc/systemd/system/easyphone-firewall.service"
 
 if [[ ! -f "$FIREWALL_SCRIPT" ]]; then
   warn "Arquivo 'firewall-rules.sh' não encontrado ao lado do init.sh."
@@ -526,17 +526,17 @@ else
   #     que é restaurado com FLUSH e apaga essas chains, quebrando o
   #     `docker network create` com "No chain/target/match by that name".
   if [[ ! -f "$FIREWALL_UNIT_TEMPLATE" ]]; then
-    warn "Template 'systemd/easyfone-firewall.service.example' não encontrado; unit não instalado."
+    warn "Template 'systemd/easyphone-firewall.service.example' não encontrado; unit não instalado."
   elif ! command -v systemctl &>/dev/null; then
     warn "systemctl não disponível; unit de firewall não instalado."
   elif ask_yes "Instalar o serviço que reaplica o firewall a cada boot (recomendado)?"; then
-    box_start "Instalação do easyfone-firewall.service"
+    box_start "Instalação do easyphone-firewall.service"
     sed "s|__FIREWALL_SCRIPT__|$FIREWALL_SCRIPT|g" \
       "$FIREWALL_UNIT_TEMPLATE" > "$FIREWALL_UNIT_PATH"
     systemctl daemon-reload
-    systemctl enable easyfone-firewall.service 2>&1 | tee -a "$LOGFILE"
-    ok "easyfone-firewall.service instalado e habilitado."
-    INSTALLED+=("easyfone-firewall.service")
+    systemctl enable easyphone-firewall.service 2>&1 | tee -a "$LOGFILE"
+    ok "easyphone-firewall.service instalado e habilitado."
+    INSTALLED+=("easyphone-firewall.service")
     box_end
 
     if systemctl is-enabled netfilter-persistent &>/dev/null; then

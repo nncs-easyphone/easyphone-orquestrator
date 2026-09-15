@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# EasyFone Orchestrator — Diagnóstico de firewall e rede (SOMENTE LEITURA)
+# EasyPhone Orchestrator — Diagnóstico de firewall e rede (SOMENTE LEITURA)
 # Uso: sudo bash diagnose-firewall.sh [> diagnostico-$(date +%F-%H%M).txt]
 #
 # Este script NÃO altera nada: só lê estado do netfilter, do systemd, do Docker
@@ -9,9 +9,9 @@
 # coletas que aponta a causa.
 #
 # Ele foi escrito para responder três perguntas:
-#   1. Existe um firewall CONCORRENTE no host? (easyphone-firewall.service,
-#      /opt/easyphone/firewall/, netfilter-persistent)
-#   2. As chains do Docker e as chains EASYFONE_* estão íntegras?
+#   1. Existe um firewall CONCORRENTE no host? (netfilter-persistent, ufw,
+#      firewalld) ou resíduo de guia antigo (/opt/easyphone/firewall/)?
+#   2. As chains do Docker e as chains EASYPHONE_* estão íntegras?
 #   3. A tabela de conntrack está saturando? (causa clássica de "cai tudo e só
 #      volta reiniciando o Docker")
 
@@ -35,27 +35,22 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "EasyFone — diagnóstico de firewall"
+echo "EasyPhone — diagnóstico de firewall"
 echo "Host: $(hostname)  —  $(date -Is)"
 echo "Kernel: $(uname -r)"
 
 # ── 1. Firewalls concorrentes ────────────────────────────────────────
 section "1. Serviços de firewall no host"
 
-for unit in easyfone-firewall.service easyphone-firewall.service netfilter-persistent ufw firewalld; do
+for unit in easyphone-firewall.service netfilter-persistent ufw firewalld; do
   if systemctl list-unit-files 2>/dev/null | grep -q "^${unit%.service}"; then
     state="$(systemctl is-enabled "$unit" 2>/dev/null || echo desconhecido)"
     active="$(systemctl is-active "$unit" 2>/dev/null || echo inativo)"
     case "$unit" in
-      easyfone-firewall.service)
-        ok "$unit — enabled=$state active=$active  (é o serviço oficial do projeto)" ;;
       easyphone-firewall.service)
-        bad "$unit — enabled=$state active=$active"
-        bad "    FIREWALL CONCORRENTE E OBSOLETO. O ExecStop dele roda 'iptables -t nat -F',"
-        bad "    que apaga o DNAT do Docker e derruba as portas publicadas até reiniciar o daemon."
-        bad "    Veja doc/guia-tecnico-firewall-easyphone.md para a remoção segura." ;;
+        ok "$unit — enabled=$state active=$active  (é o serviço oficial do projeto)" ;;
       *)
-        warn "$unit — enabled=$state active=$active  (pode conflitar com as chains EASYFONE_*)" ;;
+        warn "$unit — enabled=$state active=$active  (pode conflitar com as chains EASYPHONE_*)" ;;
     esac
   fi
 done
@@ -78,28 +73,28 @@ if [[ -f /etc/iptables/rules.v4 ]]; then
 fi
 
 section "2. Últimas execuções do firewall oficial"
-run journalctl -u easyfone-firewall.service -n 30 --no-pager
+run journalctl -u easyphone-firewall.service -n 30 --no-pager
 
 # ── 3. Estado do netfilter ───────────────────────────────────────────
-section "3. Chain INPUT (ordem importa: whitelist tem que vir ANTES da EASYFONE_INPUT)"
+section "3. Chain INPUT (ordem importa: whitelist tem que vir ANTES da EASYPHONE_INPUT)"
 run iptables -L INPUT -n -v --line-numbers
 
-section "4. Chain EASYFONE_WHITELIST (filtro por origem)"
-if iptables -n -L EASYFONE_WHITELIST &>/dev/null; then
-  run iptables -L EASYFONE_WHITELIST -n -v --line-numbers
-  if iptables -S EASYFONE_WHITELIST 2>/dev/null | grep -q -- '-j RETURN.*-s\|-s.*-j RETURN'; then
+section "4. Chain EASYPHONE_WHITELIST (filtro por origem)"
+if iptables -n -L EASYPHONE_WHITELIST &>/dev/null; then
+  run iptables -L EASYPHONE_WHITELIST -n -v --line-numbers
+  if iptables -S EASYPHONE_WHITELIST 2>/dev/null | grep -q -- '-j RETURN.*-s\|-s.*-j RETURN'; then
     warn "Há origens com RETURN — versão antiga do script (origem ainda passava pelo filtro de portas)."
     warn "Rode 'sudo bash firewall-rules.sh' para aplicar a versão com ACCEPT (acesso total)."
   fi
 else
-  warn "Chain EASYFONE_WHITELIST não existe — whitelist DESATIVADA (sem whitelist.conf)."
+  warn "Chain EASYPHONE_WHITELIST não existe — whitelist DESATIVADA (sem whitelist.conf)."
 fi
 
-section "5. Chain EASYFONE_INPUT (filtro por porta)"
-if iptables -n -L EASYFONE_INPUT &>/dev/null; then
-  run iptables -L EASYFONE_INPUT -n -v --line-numbers
+section "5. Chain EASYPHONE_INPUT (filtro por porta)"
+if iptables -n -L EASYPHONE_INPUT &>/dev/null; then
+  run iptables -L EASYPHONE_INPUT -n -v --line-numbers
 else
-  bad "Chain EASYFONE_INPUT NÃO existe — o firewall do projeto não está aplicado."
+  bad "Chain EASYPHONE_INPUT NÃO existe — o firewall do projeto não está aplicado."
 fi
 
 section "6. Chains do Docker (se sumirem, port publishing para até reiniciar o daemon)"
@@ -151,8 +146,8 @@ dmesg 2>/dev/null | grep -i "conntrack.*table full" | tail -5 | sed 's/^/    /' 
 # ── 9. Bloqueios registrados ─────────────────────────────────────────
 section "9. Bloqueios registrados no kernel"
 
-echo "  Prefixo EASYFONE-WL-DROP (whitelist oficial) — últimas 20:"
-journalctl -k --no-pager 2>/dev/null | grep "EASYFONE-WL-DROP" | tail -20 | sed 's/^/    /' || true
+echo "  Prefixo EASYPHONE-WL-DROP (whitelist oficial) — últimas 20:"
+journalctl -k --no-pager 2>/dev/null | grep "EASYPHONE-WL-DROP" | tail -20 | sed 's/^/    /' || true
 echo
 echo "  Prefixo 'FIREWALL DROP' (firewall OBSOLETO do doc) — últimas 10:"
 fw_drop=$(journalctl -k --no-pager 2>/dev/null | grep "FIREWALL DROP" | tail -10)
@@ -178,14 +173,14 @@ systemctl show docker --property=ActiveEnterTimestamp 2>/dev/null | sed 's/^/   
 # ── 12. Asterisk ─────────────────────────────────────────────────────
 section "12. Asterisk (PJSIP)"
 
-if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^easyfone-asterisk$'; then
-  run docker exec easyfone-asterisk asterisk -rx "pjsip show transports"
-  run docker exec easyfone-asterisk asterisk -rx "pjsip show endpoints"
-  run docker exec easyfone-asterisk asterisk -rx "pjsip show aors"
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^easyphone-asterisk$'; then
+  run docker exec easyphone-asterisk asterisk -rx "pjsip show transports"
+  run docker exec easyphone-asterisk asterisk -rx "pjsip show endpoints"
+  run docker exec easyphone-asterisk asterisk -rx "pjsip show aors"
 
   # Descritores abertos: crescimento contínuo entre coletas indica vazamento,
   # que também se manifesta como falha ao criar requisições de saída.
-  ast_pid=$(docker inspect -f '{{.State.Pid}}' easyfone-asterisk 2>/dev/null)
+  ast_pid=$(docker inspect -f '{{.State.Pid}}' easyphone-asterisk 2>/dev/null)
   if [[ -n "${ast_pid:-}" && -d "/proc/$ast_pid/fd" ]]; then
     echo "  Descritores abertos pelo Asterisk (pid $ast_pid): $(ls "/proc/$ast_pid/fd" 2>/dev/null | wc -l)"
     echo "  Limite (nofile): $(grep 'Max open files' "/proc/$ast_pid/limits" 2>/dev/null | awk '{print $4" (soft) / "$5" (hard)"}')"
@@ -193,9 +188,9 @@ if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^easyfone-asterisk$'; 
 
   echo
   echo "  Erros recentes no log do Asterisk:"
-  docker logs --tail 200 easyfone-asterisk 2>&1 | grep -i "ERROR\|WARNING" | tail -20 | sed 's/^/    /' || true
+  docker logs --tail 200 easyphone-asterisk 2>&1 | grep -i "ERROR\|WARNING" | tail -20 | sed 's/^/    /' || true
 else
-  warn "Container easyfone-asterisk não está rodando."
+  warn "Container easyphone-asterisk não está rodando."
 fi
 
 section "Fim do diagnóstico"

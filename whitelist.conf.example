@@ -1,4 +1,4 @@
-# EasyFone Orchestrator — Whitelist de origens
+# EasyPhone Orchestrator — Whitelist de origens
 #
 # Copie para 'whitelist.conf' e ajuste a lista. A existência do whitelist.conf é
 # o que ativa a whitelist: sem ele, o whitelist-rules.sh não faz nada e o
@@ -7,9 +7,9 @@
 #   cp whitelist.conf.example whitelist.conf
 #   sudo bash firewall-rules.sh
 #
-# ⚠️ ORIGEM LISTADA AQUI = ACESSO TOTAL AO HOST. A chain EASYFONE_WHITELIST faz
+# ⚠️ ORIGEM LISTADA AQUI = ACESSO TOTAL AO HOST. A chain EASYPHONE_WHITELIST faz
 # ACCEPT para estes CIDRs, então eles NÃO passam pelo filtro de portas da
-# EASYFONE_INPUT: alcançam qualquer porta, inclusive AMI (5038), ARI (8088),
+# EASYPHONE_INPUT: alcançam qualquer porta, inclusive AMI (5038), ARI (8088),
 # WSS (8089) e Postgres (7001). Esta é uma lista de hosts CONFIÁVEIS — troncos,
 # operadoras e máquinas de administração — não um filtro de borda.
 #

@@ -1,10 +1,10 @@
-; Template do unit de firewall do EasyFone.
-; O init.sh gera /etc/systemd/system/easyfone-firewall.service a partir deste
+; Template do unit de firewall do EasyPhone.
+; O init.sh gera /etc/systemd/system/easyphone-firewall.service a partir deste
 ; arquivo, substituindo __FIREWALL_SCRIPT__ pelo caminho absoluto real do
 ; firewall-rules.sh.
 
 [Unit]
-Description=EasyFone — regras de firewall (chain EASYFONE_INPUT)
+Description=EasyPhone — regras de firewall (chain EASYPHONE_INPUT)
 Documentation=file://__FIREWALL_SCRIPT__
 # O dockerd cria as chains DOCKER-* apenas na inicialização do daemon. Aplicar o
 # firewall DEPOIS dele garante que as regras do projeto sejam acrescentadas por

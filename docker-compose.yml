@@ -1,7 +1,9 @@
+name: easyphone
+
 services:
   traefik:
     image: traefik:v3
-    container_name: easyfone-traefik
+    container_name: easyphone-traefik
     restart: unless-stopped
     ports:
       - "80:80"
@@ -17,7 +19,7 @@ services:
       - traefik-public
     command:
       - "--providers.docker=true"
-      - "--providers.docker.network=easyfone-traefik-public"
+      - "--providers.docker.network=easyphone-traefik-public"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.file.directory=/etc/traefik/conf"
       - "--entrypoints.web.address=:80"
@@ -32,7 +34,7 @@ services:
 
   postgres:
     image: postgres:17-alpine
-    container_name: easyfone-pg
+    container_name: easyphone-pg
     restart: unless-stopped
     ports:
       - "7001:5432"
@@ -54,7 +56,7 @@ services:
 
   pgbouncer:
     image: edoburu/pgbouncer:latest
-    container_name: easyfone-pgbouncer
+    container_name: easyphone-pgbouncer
     restart: unless-stopped
     ports:
       - "7003:6432"
@@ -92,7 +94,7 @@ services:
     build:
       context: ../easyphone-api
       dockerfile: Dockerfile
-    container_name: easyfone-migrations
+    container_name: easyphone-migrations
     command: sh -c "npx prisma migrate deploy"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -108,7 +110,7 @@ services:
   # renovação, sem intervenção manual.
   certs-dumper:
     image: ldez/traefik-certs-dumper:v2.10.0
-    container_name: easyfone-certs-dumper
+    container_name: easyphone-certs-dumper
     restart: unless-stopped
     command:
       - "file"
@@ -126,7 +128,7 @@ services:
 
   coturn:
     image: coturn/coturn:latest
-    container_name: easyfone-coturn
+    container_name: easyphone-coturn
     restart: unless-stopped
     network_mode: host
     # Sem `command`: o CMD oficial da imagem já é
@@ -148,7 +150,7 @@ services:
     build:
       context: ../easyphone-asterisk
       dockerfile: Dockerfile
-    container_name: easyfone-asterisk
+    container_name: easyphone-asterisk
     restart: unless-stopped
     network_mode: host
     environment:
@@ -192,7 +194,7 @@ services:
     build:
       context: ../easyphone-api
       dockerfile: Dockerfile
-    container_name: easyfone-seed
+    container_name: easyphone-seed
     command: sh -c "npx prisma db seed"
     environment:
       NODE_ENV: ${NODE_ENV}
@@ -246,7 +248,7 @@ services:
     build:
       context: ../easyphone-api
       dockerfile: Dockerfile
-    container_name: easyfone-api
+    container_name: easyphone-api
     restart: unless-stopped
     ports: []
     networks:
@@ -292,7 +294,7 @@ services:
       EASYPHONE_TRANSCRIBER_URL: http://transcriber:3335
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=easyfone-traefik-public"
+      - "traefik.docker.network=easyphone-traefik-public"
       - "traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
@@ -325,7 +327,7 @@ services:
     build:
       context: ../easyphone-web
       dockerfile: Dockerfile
-    container_name: easyfone-web
+    container_name: easyphone-web
     restart: unless-stopped
     ports: []
     networks:
@@ -342,7 +344,7 @@ services:
       VITE_MAX_FILE_SIZE_UPLOAD_IVR_AUDIO: "${VITE_MAX_FILE_SIZE_UPLOAD_IVR_AUDIO}"
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=easyfone-traefik-public"
+      - "traefik.docker.network=easyphone-traefik-public"
       - "traefik.http.routers.web.rule=Host(`app.${DOMAIN}`)"
       - "traefik.http.routers.web.entrypoints=websecure"
       - "traefik.http.routers.web.tls.certresolver=letsencrypt"
@@ -386,16 +388,25 @@ services:
 
 volumes:
   pgdata:
+    name: easyphone_pgdata
   coturn_certs:
+    name: easyphone_coturn_certs
   asterisk_config:
+    name: easyphone_asterisk_config
   asterisk_lib:
+    name: easyphone_asterisk_lib
   asterisk_log:
+    name: easyphone_asterisk_log
   asterisk_monitor:
+    name: easyphone_asterisk_monitor
   traefik_data:
+    name: easyphone_traefik_data
   backup_data:
+    name: easyphone_backup_data
 
 networks:
   default:
+    name: easyphone_default
     driver: bridge
   traefik-public:
-    name: easyfone-traefik-public
+    name: easyphone-traefik-public
