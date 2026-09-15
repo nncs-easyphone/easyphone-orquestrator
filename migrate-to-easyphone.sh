@@ -3,32 +3,39 @@
 # EasyPhone Orchestrator — Migração de instalações antigas (EasyFone → EasyPhone)
 # Uso: sudo bash migrate-to-easyphone.sh [opções]
 #
-# Migra uma instalação criada pelo orquestrador ANTIGO (projeto Compose
-# "easyfone") para a identidade NOVA deste repositório ("easyphone"), SEM perder
-# dados. Rode DEPOIS do `git pull` (o docker-compose.yml já traz os nomes novos)
-# e ANTES do `docker compose up -d --force-recreate`.
+# Migra uma instalação criada pelo orquestrador ANTIGO para a identidade NOVA
+# deste repositório, SEM perder dados. Rode DEPOIS do `git pull` (o
+# docker-compose.yml já traz os nomes novos) e ANTES do
+# `docker compose up -d --force-recreate`.
+#
+# O script DETECTA o estado real (projeto/volumes/BD) pelo Docker em execução,
+# sem confiar no .env. Cobre os cenários encontrados em campo:
+#   A) projeto "easyphone-orquestrator" e volumes "easyphone-orquestrator_*"
+#      → copia os volumes para os nomes-alvo "easyphone_*";
+#   B) projeto já "easyphone" e volumes já "easyphone_*"
+#      → não copia nada; só recria containers e migra o firewall.
 #
 # O que este script faz:
 #   1. backup lógico do Postgres e do .env;
 #   2. derruba o projeto antigo (preservando volumes);
-#   3. copia cada volume easyfone_* → easyphone_*;
-#   4. renomeia o banco/role do Postgres (easyfone → easyphone);
+#   3. copia os volumes de dados para os nomes-alvo (quando necessário);
+#   4. renomeia o banco/role do Postgres (quando necessário);
 #   5. ajusta o .env;
 #   6. migra o firewall do host (unit systemd + chains iptables);
 #   7. imprime os próximos passos (e, com --cleanup, remove o resíduo antigo).
 #
-# ATENÇÃO: os nomes de 3 a 5 e 6 são a "identidade de runtime". As imagens de
-# api/web NÃO mudam: toda a configuração vem das env do Compose em tempo de
-# execução (o .env fica fora da imagem).
+# As imagens de api/web NÃO mudam: a configuração vem das env do Compose em
+# tempo de execução (o .env fica fora da imagem).
 #
 # Opções:
-#   --dry-run          Mostra o plano (volumes e tamanhos) sem alterar nada.
-#   --yes              Não-interativo (obrigatório para uso automatizado).
-#   --skip-db-rename   Não renomeia role/db do Postgres (só projeto + volumes).
-#   --skip-firewall    Não mexe no firewall do host.
-#   --cleanup          Após sucesso, remove volumes/rede/backups antigos.
-#   --force            Prossegue mesmo com estado ambíguo.
-#   -h, --help         Mostra esta ajuda.
+#   --dry-run             Mostra o plano (volumes e tamanhos) sem alterar nada.
+#   --yes                 Não-interativo.
+#   --old-project <nome>  Força o projeto Compose antigo (senão, auto-detecta).
+#   --skip-db-rename      Não renomeia role/db do Postgres.
+#   --skip-firewall       Não mexe no firewall do host.
+#   --cleanup             Após sucesso, remove volumes/rede/backups antigos.
+#   --force               Prossegue mesmo com estado ambíguo.
+#   -h, --help            Mostra esta ajuda.
 
 set -euo pipefail
 
@@ -45,7 +52,6 @@ STATE_DIR="/var/lib/easyphone-migrate"
 BACKUP_DIR="/var/backups/easyphone-migrate"
 LOCK_FILE="/var/lock/easyphone-migrate.lock"
 
-OLD_PROJECT_DEFAULT="easyfone"
 NEW_PROJECT="easyphone"
 
 OLD_UNIT="easyfone-firewall.service"
@@ -80,17 +86,23 @@ run() {
 #  ARGUMENTOS
 # ─────────────────────────────────────────────────────────────────────
 DRY_RUN=false; ASSUME_YES=false; SKIP_DB=false; SKIP_FW=false; CLEANUP=false; FORCE=false
+OLD_PROJECT_OVERRIDE=""
 
-for arg in "$@"; do
-  case "$arg" in
-    --dry-run)        DRY_RUN=true ;;
-    --yes)            ASSUME_YES=true ;;
-    --skip-db-rename) SKIP_DB=true ;;
-    --skip-firewall)  SKIP_FW=true ;;
-    --cleanup)        CLEANUP=true ;;
-    --force)          FORCE=true ;;
-    -h|--help)        sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) error "Argumento desconhecido: $arg"; exit 1 ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)        DRY_RUN=true; shift ;;
+    --yes)            ASSUME_YES=true; shift ;;
+    --old-project)
+      OLD_PROJECT_OVERRIDE="${2:-}"
+      shift
+      [[ $# -gt 0 ]] && shift
+      ;;
+    --skip-db-rename) SKIP_DB=true; shift ;;
+    --skip-firewall)  SKIP_FW=true; shift ;;
+    --cleanup)        CLEANUP=true; shift ;;
+    --force)          FORCE=true; shift ;;
+    -h|--help)        sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) error "Argumento desconhecido: $1"; exit 1 ;;
   esac
 done
 
@@ -120,45 +132,82 @@ if ! flock -n 9; then
   exit 1
 fi
 
-OLD_PROJECT="$(grep -E '^COMPOSE_PROJECT_NAME=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
-OLD_PROJECT="${OLD_PROJECT:-$OLD_PROJECT_DEFAULT}"
-OLD_NETWORKS=("${OLD_PROJECT}_default" "${OLD_PROJECT}-traefik-public")
-OLD_PG_USER="$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
-OLD_PG_DB="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+# ── Detecção do estado real (não confia no .env) ─────────────────────
+container_env() {
+  docker inspect "$1" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+    | grep -m1 "^$2=" | cut -d= -f2- || true
+}
+detect_pg_container() {
+  local n
+  n="$(docker ps     --filter 'label=com.docker.compose.service=postgres' --format '{{.Names}}' 2>/dev/null | head -1)"
+  [[ -z "$n" ]] && n="$(docker ps -a --filter 'label=com.docker.compose.service=postgres' --format '{{.Names}}' 2>/dev/null | head -1)"
+  echo "$n"
+}
+
 NEW_PG_USER="easyphone"
 NEW_PG_DB="easyphone"
 
-ok "Projeto Compose atual:   $OLD_PROJECT"
-ok "Projeto Compose novo:    $NEW_PROJECT"
-ok "Postgres atual:          user=$OLD_PG_USER db=$OLD_PG_DB"
-ok "Postgres novo:           user=$NEW_PG_USER db=$NEW_PG_DB"
-
-if [[ "$OLD_PROJECT" == "$NEW_PROJECT" ]]; then
-  ok "O projeto já é '$NEW_PROJECT'. Nada a migrar de Compose/volumes."
-  ALREADY_RENAMED_PROJECT=true
+if [[ -n "$OLD_PROJECT_OVERRIDE" ]]; then
+  OLD_PROJECT="$OLD_PROJECT_OVERRIDE"
 else
-  ALREADY_RENAMED_PROJECT=false
+  OLD_PROJECT="$(docker ps -a --filter 'label=com.docker.compose.service=postgres' \
+    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | head -1 || true)"
+  [[ -z "$OLD_PROJECT" ]] && OLD_PROJECT="$(grep -E '^COMPOSE_PROJECT_NAME=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+  [[ -z "$OLD_PROJECT" ]] && OLD_PROJECT="$(basename "$REPO_DIR")"
 fi
 
-# Volumes antigos existentes (dinâmico: pega qualquer volume easyfone_*)
+PG_CONTAINER="$(detect_pg_container)"
+OLD_PG_USER=""; OLD_PG_DB=""
+if [[ -n "$PG_CONTAINER" ]]; then
+  OLD_PG_USER="$(container_env "$PG_CONTAINER" POSTGRES_USER)"
+  OLD_PG_DB="$(container_env "$PG_CONTAINER" POSTGRES_DB)"
+fi
+[[ -z "$OLD_PG_USER" ]] && OLD_PG_USER="$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+[[ -z "$OLD_PG_DB" ]]   && OLD_PG_DB="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+OLD_PG_USER="${OLD_PG_USER:-easyfone}"
+OLD_PG_DB="${OLD_PG_DB:-easyfone}"
+
+ok "Projeto Compose real:    $OLD_PROJECT"
+ok "Projeto Compose novo:    $NEW_PROJECT"
+ok "Container Postgres:      ${PG_CONTAINER:-(nenhum)}"
+ok "Postgres real:           user=$OLD_PG_USER db=$OLD_PG_DB"
+ok "Postgres novo:           user=$NEW_PG_USER db=$NEW_PG_DB"
+[[ "$OLD_PROJECT" == "$NEW_PROJECT" ]] && ok "O projeto já é '$NEW_PROJECT' — volumes já devem estar no nome-alvo."
+
+# Volumes do projeto real (prefixo detectado, não o do .env)
 mapfile -t OLD_VOLUMES < <(docker volume ls -q --filter "name=^${OLD_PROJECT}_" 2>/dev/null || true)
 if [[ ${#OLD_VOLUMES[@]} -eq 0 ]]; then
   warn "Nenhum volume '${OLD_PROJECT}_*' encontrado."
 else
-  ok "Volumes antigos encontrados: ${#OLD_VOLUMES[@]}"
+  ok "Volumes do projeto atual: ${#OLD_VOLUMES[@]}"
 fi
 
-# Volumes novos já existentes
-mapfile -t NEW_EXISTING < <(docker volume ls -q --filter "name=^${NEW_PROJECT}_" 2>/dev/null || true)
-if [[ ${#NEW_EXISTING[@]} -gt 0 ]]; then
-  if $FORCE; then
-    warn "Volumes '${NEW_PROJECT}_*' já existem (${#NEW_EXISTING[@]}) — prosseguindo com --force."
-  else
-    error "Volumes '${NEW_PROJECT}_*' já existem (${#NEW_EXISTING[@]}): ${NEW_EXISTING[*]}"
-    error "Não sobrescrevo dados. Confira e remova antes, ou use --force."
-    exit 1
+# Plano de cópia: só quando o nome muda e o alvo não é o próprio volume
+COPY_PAIRS=()
+for v in "${OLD_VOLUMES[@]}"; do
+  suffix="${v#"${OLD_PROJECT}"}"           # ex.: _pgdata
+  target="${NEW_PROJECT}${suffix}"
+  [[ "$v" == "$target" ]] && continue       # já está no nome-alvo
+  if docker volume inspect "$target" >/dev/null 2>&1; then
+    if $FORCE; then
+      warn "Alvo '$target' já existe — sobrescrevendo com --force ($v → $target)."
+    else
+      error "O volume alvo '$target' já existe (origem: '$v')."
+      error "Não sobrescrevo dados. Remova o alvo ou use --force."
+      exit 1
+    fi
   fi
+  COPY_PAIRS+=("$v|$target")
+done
+
+if [[ ${#COPY_PAIRS[@]} -eq 0 ]]; then
+  ok "Nenhum volume a copiar (nomes já estão no alvo)."
+else
+  ok "Volumes a copiar: ${#COPY_PAIRS[@]}"
 fi
+
+# Redes antigas a remover (nunca as novas)
+OLD_NETS=("${OLD_PROJECT}_default" "${OLD_PROJECT}-traefik-public" "easyfone-traefik-public")
 
 # docker pull alpine (usado na cópia)
 if ! docker image inspect alpine >/dev/null 2>&1; then
@@ -174,18 +223,17 @@ step "1/7 — Backup"
 TS="$(date +%Y%m%d-%H%M%S)"
 run cp -a "$ENV_FILE" "$BACKUP_DIR/env.$TS.bak"
 
-OLD_PG_CONTAINER="${OLD_PROJECT}-pg"
-if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$OLD_PG_CONTAINER"; then
+if [[ -n "$PG_CONTAINER" ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$PG_CONTAINER"; then
   info "pg_dump do banco atual (${OLD_PG_DB})…"
   if ! $DRY_RUN; then
-    if docker exec "$OLD_PG_CONTAINER" pg_dump -U "$OLD_PG_USER" "$OLD_PG_DB" 2>>"$LOG_FILE" | gzip > "$BACKUP_DIR/db.$TS.sql.gz"; then
+    if docker exec "$PG_CONTAINER" pg_dump -U "$OLD_PG_USER" "$OLD_PG_DB" 2>>"$LOG_FILE" | gzip > "$BACKUP_DIR/db.$TS.sql.gz"; then
       ok "Backup: $BACKUP_DIR/db.$TS.sql.gz ($(du -h "$BACKUP_DIR/db.$TS.sql.gz" | cut -f1))"
     else
       warn "pg_dump falhou (o banco pode estar apenas inicializando). Seguindo com o backup do .env."
     fi
   fi
 else
-  warn "Container '$OLD_PG_CONTAINER' não está rodando — pulando pg_dump."
+  warn "Container do Postgres não está rodando — pulando pg_dump."
 fi
 
 echo "ts=$TS" > "$STATE_DIR/state"
@@ -195,16 +243,13 @@ echo "ts=$TS" > "$STATE_DIR/state"
 # ─────────────────────────────────────────────────────────────────────
 step "2/7 — Derrubar o projeto antigo (volumes preservados)"
 
-if $ALREADY_RENAMED_PROJECT; then
-  info "Projeto já é $NEW_PROJECT — ajustando o down para ele."
-  run docker compose down
-else
-  # Usa o compose NOVO, mas o projeto ANTIGO: casa por label de serviço.
-  run docker compose -p "$OLD_PROJECT" down
-fi
+# Usa o compose NOVO, mas o projeto REAL: casa por label de serviço.
+run docker compose -p "$OLD_PROJECT" down
 
-# Redes antigas (o nome mudou, então o down pode não removê-las)
-for net in "${OLD_NETWORKS[@]}"; do
+# Redes antigas (o nome mudou, então o down pode não removê-las).
+# Nunca remove as redes novas (ex.: easyphone_default / easyphone-traefik-public).
+for net in "${OLD_NETS[@]}"; do
+  [[ "$net" == "${NEW_PROJECT}_default" || "$net" == "${NEW_PROJECT}-traefik-public" ]] && continue
   if docker network inspect "$net" >/dev/null 2>&1; then
     run docker network rm "$net"
   fi
@@ -213,16 +258,16 @@ done
 # ─────────────────────────────────────────────────────────────────────
 #  3. CÓPIA DOS VOLUMES
 # ─────────────────────────────────────────────────────────────────────
-step "3/7 — Copiar volumes ${OLD_PROJECT}_* → ${NEW_PROJECT}_*"
+step "3/7 — Copiar volumes para os nomes-alvo"
 
-if [[ ${#OLD_VOLUMES[@]} -gt 0 ]]; then
+if [[ ${#COPY_PAIRS[@]} -gt 0 ]]; then
   total_kb=0
-  for v in "${OLD_VOLUMES[@]}"; do
-    kb=$(docker run --rm -v "${v}:/v:ro" alpine du -sk /v 2>/dev/null | awk '{print $1}')
+  for pair in "${COPY_PAIRS[@]}"; do
+    old="${pair%%|*}"; target="${pair##*|}"
+    kb=$(docker run --rm -v "${old}:/v:ro" alpine du -sk /v 2>/dev/null | awk '{print $1}')
     kb=${kb:-0}
     total_kb=$((total_kb + kb))
-    suffix="${v#"${OLD_PROJECT}"}"
-    printf '  %-40s → %s (%s KB)\n' "$v" "${NEW_PROJECT}${suffix}" "$kb" | tee -a "$LOG_FILE"
+    printf '  %-45s → %s (%s KB)\n' "$old" "$target" "$kb" | tee -a "$LOG_FILE"
   done
   ok "Total a copiar: ~$((total_kb / 1024)) MB"
 
@@ -232,17 +277,16 @@ if [[ ${#OLD_VOLUMES[@]} -gt 0 ]]; then
     $FORCE || exit 1
   fi
 
-  for v in "${OLD_VOLUMES[@]}"; do
-    suffix="${v#"${OLD_PROJECT}"}"
-    new="${NEW_PROJECT}${suffix}"
-    run docker volume create "$new"
-    run docker run --rm -v "${v}:/from:ro" -v "${new}:/to" \
+  for pair in "${COPY_PAIRS[@]}"; do
+    old="${pair%%|*}"; target="${pair##*|}"
+    run docker volume create "$target"
+    run docker run --rm -v "${old}:/from:ro" -v "${target}:/to" \
       alpine sh -c 'tar -C /from -cf - . | tar -C /to -xf -'
-    echo "$new" >> "$STATE_DIR/copied_volumes"
-    ok "Copiado: $v → $new"
+    echo "$target" >> "$STATE_DIR/copied_volumes"
+    ok "Copiado: $old → $target"
   done
 else
-  warn "Nada a copiar (nenhum volume ${OLD_PROJECT}_*)."
+  ok "Nada a copiar — os volumes já estão no nome-alvo."
 fi
 
 # ─────────────────────────────────────────────────────────────────────
@@ -277,7 +321,7 @@ step "5/7 — Renomear role/db do Postgres"
 if $SKIP_DB; then
   warn "Pulando (--skip-db-rename)."
 elif [[ "$OLD_PG_USER" == "$NEW_PG_USER" && "$OLD_PG_DB" == "$NEW_PG_DB" ]]; then
-  ok "Postgres já é easyphone."
+  ok "Postgres já é easyphone (role/db)."
 else
   run docker compose up -d postgres
 
@@ -296,18 +340,23 @@ else
       exit 1
     fi
 
-    if ! docker exec "${NEW_PROJECT}-pg" psql -U "$OLD_PG_USER" -d postgres -v ON_ERROR_STOP=1 <<SQL
-SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-  WHERE datname = '$OLD_PG_DB' AND pid <> pg_backend_pid();
-ALTER DATABASE "$OLD_PG_DB" RENAME TO "$NEW_PG_DB";
-ALTER ROLE "$OLD_PG_USER" RENAME TO "$NEW_PG_USER";
-SQL
+    # Renomeia só o que difere (ALTER para o mesmo nome falha).
+    sql=""
+    if [[ "$OLD_PG_DB" != "$NEW_PG_DB" ]]; then
+      sql+="SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$OLD_PG_DB' AND pid <> pg_backend_pid();"$'\n'
+      sql+="ALTER DATABASE \"$OLD_PG_DB\" RENAME TO \"$NEW_PG_DB\";"$'\n'
+    fi
+    if [[ "$OLD_PG_USER" != "$NEW_PG_USER" ]]; then
+      sql+="ALTER ROLE \"$OLD_PG_USER\" RENAME TO \"$NEW_PG_USER\";"$'\n'
+    fi
+
+    if ! printf '%s' "$sql" | docker exec -i "${NEW_PROJECT}-pg" psql -U "$OLD_PG_USER" -d postgres -v ON_ERROR_STOP=1 >>"$LOG_FILE" 2>&1
     then
       error "Falha ao renomear role/db. A stack está parada e os volumes antigos estão intactos."
       error "Restaure o .env de $BACKUP_DIR/env.$TS.bak e suba o projeto antigo para voltar atrás."
       exit 1
     fi
-    ok "Banco renomeado: $OLD_PG_DB → $NEW_PG_DB; role: $OLD_PG_USER → $NEW_PG_USER."
+    ok "Banco ajustado: db $OLD_PG_DB → $NEW_PG_DB; role $OLD_PG_USER → $NEW_PG_USER."
   fi
 
   run docker compose down
@@ -323,11 +372,12 @@ if $SKIP_FW; then
 elif ! command -v iptables >/dev/null 2>&1; then
   warn "iptables não encontrado — pulando firewall."
 else
-  # 6a. Desabilitar/remover o unit antigo
+  # 6a. Desabilitar/remover o unit antigo (arquivo + symlink de enable)
   if systemctl list-unit-files 2>/dev/null | grep -q "^${OLD_UNIT%.service}"; then
     run systemctl disable --now "$OLD_UNIT"
   fi
   run rm -f "/etc/systemd/system/$OLD_UNIT"
+  run rm -f "/etc/systemd/system/multi-user.target.wants/$OLD_UNIT"
 
   # 6b. Remover resíduo do guia antigo (mesmo nome do unit novo)
   if [[ -f "$NEW_UNIT_PATH" ]]; then
@@ -391,10 +441,12 @@ echo
 if $CLEANUP; then
   step "Cleanup — remover resíduo antigo"
   if [[ "$OLD_PROJECT" != "$NEW_PROJECT" ]]; then
-    for v in "${OLD_VOLUMES[@]}"; do
-      run docker volume rm "$v" || warn "Não foi possível remover $v (em uso?)."
+    for pair in "${COPY_PAIRS[@]}"; do
+      old="${pair%%|*}"
+      run docker volume rm "$old" || warn "Não foi possível remover $old (em uso?)."
     done
-    for net in "${OLD_NETWORKS[@]}"; do
+    for net in "${OLD_NETS[@]}"; do
+      [[ "$net" == "${NEW_PROJECT}_default" || "$net" == "${NEW_PROJECT}-traefik-public" ]] && continue
       docker network inspect "$net" >/dev/null 2>&1 && run docker network rm "$net" || true
     done
   fi
