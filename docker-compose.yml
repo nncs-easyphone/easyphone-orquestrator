@@ -21,6 +21,9 @@ services:
       - ./traefik/conf:/etc/traefik/conf:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    dns:
+      - "${DNS_SERVER_1:-8.8.8.8}"
+      - "${DNS_SERVER_2:-1.1.1.1}"
     networks:
       - default          # FIX 1: adicionado para garantir alcance a api/web mesmo sem label
       - traefik-public

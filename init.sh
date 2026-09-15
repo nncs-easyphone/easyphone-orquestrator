@@ -83,6 +83,16 @@ is_valid_port() {
   [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 ))
 }
 
+# is_valid_ipv4: quatro octetos entre 0 e 255 (ex.: 8.8.8.8).
+is_valid_ipv4() {
+  local ip="$1" octet
+  [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS='.' read -r -a octets <<< "$ip"
+  for octet in "${octets[@]}"; do
+    (( octet <= 255 )) || return 1
+  done
+}
+
 # Portas já usadas pela stack — a porta de gestão não deve colidir com elas.
 is_stack_port() {
   case "$1" in
@@ -216,6 +226,35 @@ if $CONFIG_ENABLED; then
   update_env "LETSENCRYPT_EMAIL" "$LETSENCRYPT_EMAIL" "$ENV_FILE"
 
   box_end
+
+  # ── DNS (Traefik) ──
+  # Servidores DNS usados pelo container do Traefik para resolução externa.
+  # Não afeta a resolução de nomes de serviço do Docker (127.0.0.11).
+  if ask_yes "Configurar servidores DNS do Traefik?"; then
+    box_start "Configuração DNS (Traefik)"
+    ask_value "DNS primário" "8.8.8.8" DNS_SERVER_1
+    while ! is_valid_ipv4 "$DNS_SERVER_1"; do
+      warn "Informe um IPv4 válido (ex: 8.8.8.8)."
+      ask_value "DNS primário" "8.8.8.8" DNS_SERVER_1
+    done
+    update_env "DNS_SERVER_1" "$DNS_SERVER_1" "$ENV_FILE"
+
+    ask_value "DNS secundário" "1.1.1.1" DNS_SERVER_2
+    while ! is_valid_ipv4 "$DNS_SERVER_2"; do
+      warn "Informe um IPv4 válido (ex: 1.1.1.1)."
+      ask_value "DNS secundário" "1.1.1.1" DNS_SERVER_2
+    done
+    update_env "DNS_SERVER_2" "$DNS_SERVER_2" "$ENV_FILE"
+    box_end
+  elif $FIRST_RUN; then
+    box_start "Configuração DNS (Traefik)"
+    update_env "DNS_SERVER_1" "8.8.8.8" "$ENV_FILE"
+    update_env "DNS_SERVER_2" "1.1.1.1" "$ENV_FILE"
+    ok "DNS do Traefik definido como padrão (8.8.8.8, 1.1.1.1)."
+    box_end
+  else
+    ok "DNS do Traefik mantido como está (${DNS_SERVER_1:-8.8.8.8}, ${DNS_SERVER_2:-1.1.1.1})."
+  fi
 
   # ── Porta de gestão (SSH) ──
   # Gravada no .env e usada pelo firewall-rules.sh (inclusive no boot) para
