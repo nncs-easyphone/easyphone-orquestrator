@@ -195,6 +195,16 @@ remove_env() {
     "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
 }
 
+# rename_env OLD NEW: move o valor de OLD para NEW e remove OLD. Se NEW já
+# existir, mantém o NEW e apenas remove o OLD.
+rename_env() {
+  local old="$1" new="$2" val
+  grep -qE "^${old}=" "$ENV_FILE" || return 0
+  val="$(grep -E "^${old}=" "$ENV_FILE" | tail -1 | cut -d= -f2-)"
+  remove_env "$old"
+  grep -qE "^${new}=" "$ENV_FILE" || update_env "$new" "$val"
+}
+
 NEW_PG_USER="easyphone"
 NEW_PG_DB="easyphone"
 
@@ -381,14 +391,49 @@ fi
 # ─────────────────────────────────────────────────────────────────────
 #  4. AJUSTAR .env
 # ─────────────────────────────────────────────────────────────────────
-step "4/7 — Ajustar .env"
+step "4/7 — Ajustar .env (nomes novos + obsoletas)"
+
+# Nomes antigos -> padrão atual (ver README/contrato de env).
+ENV_RENAMES=(
+  "EASYPHONE_FIREBASE_FUNCTIONS_URL|FIREBASE_FUNCTIONS_URL"
+  "EASYPHONE_FIREBASE_URL|FIREBASE_URL"
+  "EASYPHONE_FIREBASE_SERVICE_ACCOUNT|FIREBASE_SERVICE_ACCOUNT"
+  "EASYPHONE_LICENSE_CLIENT_ID|LICENSE_CLIENT_ID"
+  "EASYPHONE_LICENSE_HARDWARE_ID|LICENSE_HARDWARE_ID"
+  "EF_AMI_DIALPLAN_EXTENSION_CONTEXT|ASTERISK_DIALPLAN_ORIGINATE_CONTEXT"
+  "EF_DIALPLAN_EXTENSION_CONTEXT_BLOCK|ASTERISK_DIALPLAN_BLOCK_CONTEXT"
+  "MUSIC_ON_HOLD_FOLDER_PATH|ASTERISK_PATH_MOH"
+  "AUDIO_URA_FOLDER_PATH|ASTERISK_PATH_URA"
+  "VITE_EF_FILES_FOLDER_PATH|ASTERISK_PATH_CONFIG"
+  "VITE_EF_CALL_RECORD_FOLDER_PATH|ASTERISK_PATH_MONITOR"
+  "VITE_FORMAT_FILES_UPLOAD_MOH|UPLOAD_MOH_FORMAT"
+  "VITE_MAX_FILES_UPLOAD_MOH|UPLOAD_MOH_MAX_FILES"
+  "VITE_MAX_FILE_SIZE_UPLOAD_MOH|UPLOAD_MOH_MAX_FILE_SIZE"
+  "VITE_MAX_FILE_SIZE_UPLOAD_IVR_AUDIO|UPLOAD_IVR_MAX_FILE_SIZE"
+)
+
+# Chaves obsoletas (sem equivalente no padrão atual).
+OBSOLETE_ENV_KEYS=(
+  WHISPER_MODEL ACTIVATE_DISCADOR_MAILING DANGEROUSLY_ALLOW_ANY_URL_FOR_UNIT_ADDRESS
+  VITE_EF_ORGS_FOLDER_PATH
+  API_IMAGE API_PORT_CONTAINER API_PORT_HOST
+  ASTERISK_IMAGE ASTERISK_AMI_PORT_HOST ASTERISK_ARI_PORT_HOST
+  ASTERISK_ARI_HTTPS_PORT_HOST ASTERISK_SIP_PORT_HOST
+  PGBOUNCER_PORT_HOST PG_PORT_HOST POSTGRES_IMAGE_TAG
+  WEB_IMAGE WEB_PORT_HOST TZ PRISMA_LOGS_OFF PG_POOL_MAX PG_POOL_MIN
+  VITE_API_DELAY VITE_ENABLE_API_DELAY
+  VITE_ASTERISK_HOST VITE_ASTERISK_ARI_PORT VITE_ASTERISK_AMI_PORT
+  VITE_ASTERISK_USERNAME VITE_ASTERISK_PASSWORD VITE_APP_NAME_ARI_ASTERISK
+  VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS COMPOSE_PROJECT_NAME
+)
 
 if ! $DRY_RUN; then
-  remove_env "COMPOSE_PROJECT_NAME"
+  for pair in "${ENV_RENAMES[@]}"; do rename_env "${pair%%|*}" "${pair##*|}"; done
+  for key in "${OBSOLETE_ENV_KEYS[@]}"; do remove_env "$key"; done
   update_env "POSTGRES_USER" "$NEW_PG_USER"
   update_env "POSTGRES_DB" "$NEW_PG_DB"
 fi
-info "COMPOSE_PROJECT_NAME removido (o compose usa o name: easyphone)"
+info "Variáveis migradas para o padrão atual; obsoletas removidas."
 info "POSTGRES_USER=$NEW_PG_USER"
 info "POSTGRES_DB=$NEW_PG_DB"
 

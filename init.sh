@@ -109,14 +109,6 @@ update_env() {
   ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 }
 
-# remove_env <chave>: apaga do ENV_FILE as linhas que começam exatamente com
-# "<chave>=" (sem tocar em chaves parecidas). Usado no prune de obsoletas.
-remove_env() {
-  local key="$1"
-  awk -v k="$key" 'index($0, k "=") == 1 { next } { print }' \
-    "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
-}
-
 # ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
 # ─────────────────────────────────────────────────────────────────────
@@ -282,7 +274,7 @@ if $CONFIG_ENABLED; then
 
   # ── Firebase Service Account ──
   if $FIRST_RUN; then
-    update_env "EASYPHONE_FIREBASE_SERVICE_ACCOUNT" "" "$ENV_FILE"
+    update_env "FIREBASE_SERVICE_ACCOUNT" "" "$ENV_FILE"
     ok "Firebase Service Account definido como vazio — edite manualmente no .env."
   else
     warn "Firebase Service Account não foi alterado. Edite manualmente no .env se necessário."
@@ -291,11 +283,11 @@ if $CONFIG_ENABLED; then
   # ── Firebase URLs ──
   if ask_yes "Configurar URLs do Firebase?"; then
     box_start "Configuração Firebase"
-    ask_value "URL do Firebase Hosting" "https://services.easyphone.com.br" EASYPHONE_FIREBASE_URL
-    update_env "EASYPHONE_FIREBASE_URL" "$EASYPHONE_FIREBASE_URL" "$ENV_FILE"
+    ask_value "URL do Firebase Hosting" "https://services.easyphone.com.br" FIREBASE_URL
+    update_env "FIREBASE_URL" "$FIREBASE_URL" "$ENV_FILE"
 
-    ask_value "URL das Cloud Functions" "https://us-central1-easyfone-bc601.cloudfunctions.net" EASYPHONE_FIREBASE_FUNCTIONS_URL
-    update_env "EASYPHONE_FIREBASE_FUNCTIONS_URL" "$EASYPHONE_FIREBASE_FUNCTIONS_URL" "$ENV_FILE"
+    ask_value "URL das Cloud Functions" "https://us-central1-easyfone-bc601.cloudfunctions.net" FIREBASE_FUNCTIONS_URL
+    update_env "FIREBASE_FUNCTIONS_URL" "$FIREBASE_FUNCTIONS_URL" "$ENV_FILE"
     box_end
   else
     ok "URLs do Firebase mantidas como estão."
@@ -304,12 +296,12 @@ if $CONFIG_ENABLED; then
   # ── License ──
   if ask_yes "Configurar variáveis de Licença?"; then
     box_start "Configuração de Licença"
-    ask_value "Client ID da licença" "" EASYPHONE_LICENSE_CLIENT_ID
-    update_env "EASYPHONE_LICENSE_CLIENT_ID" "$EASYPHONE_LICENSE_CLIENT_ID" "$ENV_FILE"
+    ask_value "Client ID da licença" "" LICENSE_CLIENT_ID
+    update_env "LICENSE_CLIENT_ID" "$LICENSE_CLIENT_ID" "$ENV_FILE"
 
     MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
-    ask_value "Hardware ID da licença" "$MACHINE_ID" EASYPHONE_LICENSE_HARDWARE_ID
-    update_env "EASYPHONE_LICENSE_HARDWARE_ID" "$EASYPHONE_LICENSE_HARDWARE_ID" "$ENV_FILE"
+    ask_value "Hardware ID da licença" "$MACHINE_ID" LICENSE_HARDWARE_ID
+    update_env "LICENSE_HARDWARE_ID" "$LICENSE_HARDWARE_ID" "$ENV_FILE"
     box_end
   else
     ok "Variáveis de Licença mantidas como estão."
@@ -351,39 +343,6 @@ fi
 # Carrega .env para os steps seguintes (se existe) — sem executar o arquivo
 if [[ -f "$ENV_FILE" ]]; then
   load_env_safe
-fi
-
-# ── Prune de variáveis obsoletas ─────────────────────────────────────
-# Remove do .env chaves que o compose/scripts não usam mais. Faz backup datado
-# antes de alterar e só age se houver algo a remover (idempotente).
-OBSOLETE_ENV_KEYS=(
-  WHISPER_MODEL
-  ACTIVATE_DISCADOR_MAILING
-  DANGEROUSLY_ALLOW_ANY_URL_FOR_UNIT_ADDRESS
-  API_IMAGE API_PORT_CONTAINER API_PORT_HOST
-  ASTERISK_IMAGE ASTERISK_AMI_PORT_HOST ASTERISK_ARI_PORT_HOST
-  ASTERISK_ARI_HTTPS_PORT_HOST ASTERISK_SIP_PORT_HOST
-  PGBOUNCER_PORT_HOST PG_PORT_HOST POSTGRES_IMAGE_TAG
-  WEB_IMAGE WEB_PORT_HOST
-  TZ PRISMA_LOGS_OFF PG_POOL_MAX PG_POOL_MIN
-  VITE_API_DELAY VITE_ENABLE_API_DELAY
-  VITE_ASTERISK_HOST VITE_ASTERISK_ARI_PORT VITE_ASTERISK_AMI_PORT
-  VITE_ASTERISK_USERNAME VITE_ASTERISK_PASSWORD VITE_APP_NAME_ARI_ASTERISK
-  VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS
-  COMPOSE_PROJECT_NAME
-)
-
-if [[ -f "$ENV_FILE" ]]; then
-  to_prune=()
-  for key in "${OBSOLETE_ENV_KEYS[@]}"; do
-    grep -qE "^${key}=" "$ENV_FILE" && to_prune+=("$key")
-  done
-  if [[ ${#to_prune[@]} -gt 0 ]]; then
-    ENV_BACKUP="${ENV_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
-    cp -a "$ENV_FILE" "$ENV_BACKUP"
-    for key in "${to_prune[@]}"; do remove_env "$key"; done
-    ok "Removidas ${#to_prune[@]} variável(is) obsoleta(s) do .env (backup: $ENV_BACKUP)."
-  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────
@@ -741,7 +700,7 @@ echo -e "${BOLD}${YELLOW}══════════════════�
 echo
 echo -e "  ${YELLOW}⚠${NC} O Firebase Service Account foi definido como ${BOLD}vazio${NC} neste script."
 echo -e "  Para funcionar corretamente, edite o arquivo ${BOLD}.env${NC} e"
-echo -e "  preencha a variável ${BOLD}EASYPHONE_FIREBASE_SERVICE_ACCOUNT${NC}"
+echo -e "  preencha a variável ${BOLD}FIREBASE_SERVICE_ACCOUNT${NC}"
 echo -e "  com o JSON da sua conta de serviço (em linha única)."
 echo
 echo -e "  ${BOLD}Exemplo:${NC}"
