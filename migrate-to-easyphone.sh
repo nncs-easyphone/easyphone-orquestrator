@@ -188,6 +188,13 @@ update_env() {
   ' "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
 }
 
+# remove_env: apaga do .env as linhas que começam exatamente com "<chave>=".
+remove_env() {
+  local key="$1"
+  awk -v k="$key" 'index($0, k "=") == 1 { next } { print }' \
+    "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
+}
+
 NEW_PG_USER="easyphone"
 NEW_PG_DB="easyphone"
 
@@ -377,11 +384,11 @@ fi
 step "4/7 — Ajustar .env"
 
 if ! $DRY_RUN; then
-  update_env "COMPOSE_PROJECT_NAME" "$NEW_PROJECT"
+  remove_env "COMPOSE_PROJECT_NAME"
   update_env "POSTGRES_USER" "$NEW_PG_USER"
   update_env "POSTGRES_DB" "$NEW_PG_DB"
 fi
-info "COMPOSE_PROJECT_NAME=$NEW_PROJECT"
+info "COMPOSE_PROJECT_NAME removido (o compose usa o name: easyphone)"
 info "POSTGRES_USER=$NEW_PG_USER"
 info "POSTGRES_DB=$NEW_PG_DB"
 

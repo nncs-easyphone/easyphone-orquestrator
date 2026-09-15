@@ -109,6 +109,14 @@ update_env() {
   ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 }
 
+# remove_env <chave>: apaga do ENV_FILE as linhas que começam exatamente com
+# "<chave>=" (sem tocar em chaves parecidas). Usado no prune de obsoletas.
+remove_env() {
+  local key="$1"
+  awk -v k="$key" 'index($0, k "=") == 1 { next } { print }' \
+    "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
+}
+
 # ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
 # ─────────────────────────────────────────────────────────────────────
@@ -343,6 +351,39 @@ fi
 # Carrega .env para os steps seguintes (se existe) — sem executar o arquivo
 if [[ -f "$ENV_FILE" ]]; then
   load_env_safe
+fi
+
+# ── Prune de variáveis obsoletas ─────────────────────────────────────
+# Remove do .env chaves que o compose/scripts não usam mais. Faz backup datado
+# antes de alterar e só age se houver algo a remover (idempotente).
+OBSOLETE_ENV_KEYS=(
+  WHISPER_MODEL
+  ACTIVATE_DISCADOR_MAILING
+  DANGEROUSLY_ALLOW_ANY_URL_FOR_UNIT_ADDRESS
+  API_IMAGE API_PORT_CONTAINER API_PORT_HOST
+  ASTERISK_IMAGE ASTERISK_AMI_PORT_HOST ASTERISK_ARI_PORT_HOST
+  ASTERISK_ARI_HTTPS_PORT_HOST ASTERISK_SIP_PORT_HOST
+  PGBOUNCER_PORT_HOST PG_PORT_HOST POSTGRES_IMAGE_TAG
+  WEB_IMAGE WEB_PORT_HOST
+  TZ PRISMA_LOGS_OFF PG_POOL_MAX PG_POOL_MIN
+  VITE_API_DELAY VITE_ENABLE_API_DELAY
+  VITE_ASTERISK_HOST VITE_ASTERISK_ARI_PORT VITE_ASTERISK_AMI_PORT
+  VITE_ASTERISK_USERNAME VITE_ASTERISK_PASSWORD VITE_APP_NAME_ARI_ASTERISK
+  VITE_TIMEOUT_ORIGINATE_LOGIN_CALL_MS
+  COMPOSE_PROJECT_NAME
+)
+
+if [[ -f "$ENV_FILE" ]]; then
+  to_prune=()
+  for key in "${OBSOLETE_ENV_KEYS[@]}"; do
+    grep -qE "^${key}=" "$ENV_FILE" && to_prune+=("$key")
+  done
+  if [[ ${#to_prune[@]} -gt 0 ]]; then
+    ENV_BACKUP="${ENV_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
+    cp -a "$ENV_FILE" "$ENV_BACKUP"
+    for key in "${to_prune[@]}"; do remove_env "$key"; done
+    ok "Removidas ${#to_prune[@]} variável(is) obsoleta(s) do .env (backup: $ENV_BACKUP)."
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────
