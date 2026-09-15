@@ -35,6 +35,13 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# Porta de gestão (SSH) esperada, conforme o .env do orquestrador.
+REPO_DIR="$(dirname "$(readlink -f "$0")")"
+SSH_PORT="$(grep -E '^SSH_PORT=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
+if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
+  SSH_PORT=22
+fi
+
 echo "EasyPhone — diagnóstico de firewall"
 echo "Host: $(hostname)  —  $(date -Is)"
 echo "Kernel: $(uname -r)"
@@ -95,6 +102,23 @@ if iptables -n -L EASYPHONE_INPUT &>/dev/null; then
   run iptables -L EASYPHONE_INPUT -n -v --line-numbers
 else
   bad "Chain EASYPHONE_INPUT NÃO existe — o firewall do projeto não está aplicado."
+fi
+
+section "5b. Porta de gestão (SSH) — esperada: $SSH_PORT"
+if iptables -S EASYPHONE_INPUT 2>/dev/null | grep -qE -- "--dport $SSH_PORT .*-j ACCEPT"; then
+  ok "Firewall libera a porta de gestão $SSH_PORT (EASYPHONE_INPUT)."
+else
+  bad "Firewall NÃO libera a porta de gestão $SSH_PORT — risco de lockout."
+fi
+
+sshd_ports="$(ss -tlnp 2>/dev/null | grep -i sshd | grep -oE ':[0-9]+ ' | tr -d ': ' | sort -un | paste -sd', ' -)"
+if [[ -z "$sshd_ports" ]]; then
+  warn "Não foi possível detectar portas do sshd (processo ausente ou sem permissão)."
+elif [[ ", $sshd_ports, " == *", $SSH_PORT, "* ]]; then
+  ok "sshd escuta na porta de gestão $SSH_PORT (portas: $sshd_ports)."
+else
+  warn "sshd NÃO escuta em $SSH_PORT — escuta em: $sshd_ports."
+  warn "Firewall e sshd divergem: ajuste o sshd ou corrija SSH_PORT no .env."
 fi
 
 section "6. Chains do Docker (se sumirem, port publishing para até reiniciar o daemon)"

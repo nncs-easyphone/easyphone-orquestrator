@@ -19,7 +19,8 @@
 # (5038), ARI (8088), WSS (8089) e Postgres (7001).
 #
 # Foi uma decisão deliberada: a EASYPHONE_INPUT libera um conjunto fixo de portas
-# (22, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e NÃO cobre,
+# (a porta de gestão SSH_PORT — 22 por padrão —, 80, 443, 5061, 3478, 5349,
+# UDP 5060 e as faixas de RTP/TURN) e NÃO cobre,
 # por exemplo, SIP em TCP/5060 nem portas 50xx alternativas. Com RETURN, um
 # tronco legítimo já na whitelist continuava sendo descartado por falar numa
 # porta fora dessa lista — falha silenciosa e difícil de diagnosticar.

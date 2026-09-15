@@ -35,6 +35,19 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# ── Porta de gestão (SSH) ─────────────────────────────────────────────
+# Lida do .env ao lado deste script para valer também no boot
+# (easyphone-firewall.service executa o script direto, sem carregar o .env).
+# Fallback 22 quando ausente ou inválida.
+REPO_DIR="$(dirname "$(readlink -f "$0")")"
+SSH_PORT="$(grep -E '^SSH_PORT=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
+  if [[ -n "$SSH_PORT" ]]; then
+    warn "SSH_PORT inválida no .env ('$SSH_PORT') — usando 22."
+  fi
+  SSH_PORT=22
+fi
+
 cat << "EOF"
   ╔══════════════════════════════════════════════╗
   ║   EasyPhone Orchestrator — Firewall Rules     ║
@@ -45,7 +58,7 @@ echo
 # NOTA: o Asterisk roda em host networking, então seu tráfego (SIP/RTP)
 # chega na chain INPUT (política DROP) — por isso precisa ser liberado aqui.
 # Apenas portas estritamente necessárias para acesso externo:
-# - 22  (SSH)     — administração do servidor
+# - $SSH_PORT (SSH) — administração do servidor (porta configurada no .env)
 # - 80  (HTTP)    — Traefik (redireciona para HTTPS + Let's Encrypt)
 # - 443 (HTTPS)   — Traefik (frontend app.exemplo.com + API api.exemplo.com)
 # - 5061 (SIP TLS) — ramais com SIP criptografado
@@ -64,7 +77,7 @@ echo
 #
 # Origens do whitelist.conf não passam por esta lista: a EASYPHONE_WHITELIST faz
 # ACCEPT antes, dando acesso total a elas (ver whitelist-rules.sh).
-PORTS_TCP=(22 80 443 5061 3478 5349)
+PORTS_TCP=("$SSH_PORT" 80 443 5061 3478 5349)
 PORTS_UDP=(5060 3478 5349)
 
 # Faixa de RTP (mídia/áudio das chamadas) — DEVE casar com rtp.conf (rtpstart/rtpend).

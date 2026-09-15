@@ -78,6 +78,19 @@ gen_hex_secret() {
 # is_safe_secret: aceita apenas caracteres que não quebram ODBC/URL/.env.
 is_safe_secret() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]; }
 
+# is_valid_port: inteiro entre 1 e 65535.
+is_valid_port() {
+  [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 ))
+}
+
+# Portas já usadas pela stack — a porta de gestão não deve colidir com elas.
+is_stack_port() {
+  case "$1" in
+    80|443|5060|5061|3478|5349|7001|7003|8089) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # read_env <chave>: lê um valor do .env SEM source (evita executar o arquivo).
 read_env() { grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2-; }
 
@@ -203,6 +216,35 @@ if $CONFIG_ENABLED; then
   update_env "LETSENCRYPT_EMAIL" "$LETSENCRYPT_EMAIL" "$ENV_FILE"
 
   box_end
+
+  # ── Porta de gestão (SSH) ──
+  # Gravada no .env e usada pelo firewall-rules.sh (inclusive no boot) para
+  # liberar o acesso administrativo. O sshd NÃO é alterado por este script.
+  if ask_yes "Configurar a porta de gestão do servidor (SSH)?"; then
+    box_start "Porta de gestão (SSH)"
+    ask_value "Porta de gestão (SSH)" "22" SSH_PORT
+    while ! is_valid_port "$SSH_PORT"; do
+      warn "Informe um número entre 1 e 65535."
+      ask_value "Porta de gestão (SSH)" "22" SSH_PORT
+    done
+    if is_stack_port "$SSH_PORT"; then
+      warn "A porta $SSH_PORT é usada pela stack EasyPhone — escolha outra para evitar conflito."
+    fi
+    update_env "SSH_PORT" "$SSH_PORT" "$ENV_FILE"
+    box_end
+
+    if [[ "$SSH_PORT" != "22" ]]; then
+      warn "O firewall vai liberar apenas a porta $SSH_PORT para acesso administrativo."
+      warn "O sshd TAMBÉM precisa escutar nessa porta, senão você perderá o acesso."
+      echo
+      echo -e "  Para ajustar o sshd:"
+      echo -e "    ${BLUE}▶${NC} Crie /etc/ssh/sshd_config.d/10-management-port.conf com: ${BOLD}Port $SSH_PORT${NC}"
+      echo -e "    ${BLUE}▶${NC} Valide e reinicie: ${BOLD}sshd -t && systemctl restart ssh${NC}"
+      echo
+    fi
+  else
+    ok "Porta de gestão mantida como está (${SSH_PORT:-22})."
+  fi
 
   # ── Postgres ──
   if ask_yes "Configurar variáveis do Postgres?"; then
@@ -629,11 +671,27 @@ else
 
   # ── 4b. Aplica as regras agora ─────────────────────────────────────
   if ask_yes "Aplicar regras de firewall padrão agora?"; then
-    box_start "Aplicação de regras de firewall"
-    bash "$FIREWALL_SCRIPT" 2>&1 | tee -a "$LOGFILE"
-    ok "Regras de firewall aplicadas."
-    box_end
-    INSTALLED+=("firewall-rules")
+    APPLY_FIREWALL=true
+    # Salvaguarda: com porta de gestão ≠ 22 o firewall passa a liberar APENAS
+    # ela. Se o sshd ainda escutar na 22, aplicar as regras derruba o acesso.
+    if [[ "${SSH_PORT:-22}" != "22" ]]; then
+      warn "O firewall vai liberar APENAS a porta ${SSH_PORT} para acesso administrativo."
+      warn "Confirme que o sshd JÁ escuta nela. Caso contrário você perderá o acesso ao servidor."
+      if ! ask_yes "O sshd já está escutando na porta ${SSH_PORT}. Aplicar as regras?"; then
+        APPLY_FIREWALL=false
+      fi
+    fi
+
+    if $APPLY_FIREWALL; then
+      box_start "Aplicação de regras de firewall"
+      bash "$FIREWALL_SCRIPT" 2>&1 | tee -a "$LOGFILE"
+      ok "Regras de firewall aplicadas."
+      box_end
+      INSTALLED+=("firewall-rules")
+    else
+      echo "  → Regras de firewall não aplicadas."
+      echo "  → Ajuste o sshd e rode: sudo bash firewall-rules.sh"
+    fi
   else
     echo "  → Regras de firewall não aplicadas."
     echo "  → Execute manualmente quando quiser: sudo bash firewall-rules.sh"

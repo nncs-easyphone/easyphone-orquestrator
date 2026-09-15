@@ -33,7 +33,7 @@ O script interativamente:
 
 | Etapa | O que faz |
 |---|---|
-| **0/6** | Configura o arquivo `.env` com perguntas sobre domínio, email Let's Encrypt, Postgres, API, Coturn, Asterisk e Firebase |
+| **0/6** | Configura o arquivo `.env` com perguntas sobre domínio, email Let's Encrypt, porta de gestão (SSH), Postgres, API, Coturn, Asterisk e Firebase |
 | **0b/6** | Gera `traefik/conf/wss.yml` e `coturn/turnserver.conf` a partir dos templates `.example`, substituindo domínio e credenciais do `.env` |
 | **1/6** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
 | **2/6** | Autentica no ghcr.io (valida o token com um pull real) |
@@ -42,6 +42,8 @@ O script interativamente:
 | **5/6** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
 
 > **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
+
+> **Porta de gestão (SSH):** na etapa 0/6 o `init.sh` pergunta a porta de gestão (padrão `22`) e grava em `SSH_PORT` no `.env`. O firewall libera **apenas** essa porta — inclusive no boot (via `easyphone-firewall.service`). O script **não** altera o `sshd`: se você escolher uma porta diferente de 22, configure antes o `/etc/ssh/sshd_config.d/` (`Port <SSH_PORT>`, valide com `sshd -t && systemctl restart ssh`) ou você perderá o acesso. O `diagnose-firewall.sh` compara a porta liberada no firewall com a que o `sshd` escuta e avisa em caso de divergência.
 
 ### Pré-requisito: Token GHCR
 
@@ -191,7 +193,7 @@ INPUT (policy DROP)
 
 **⚠️ Origem no `ALLOWED` = acesso total.** A chain faz `ACCEPT`, então esses IPs saem da INPUT ali mesmo e **não** passam pelo filtro de portas: alcançam qualquer porta do host, inclusive AMI (5038), ARI (8088), WSS (8089) e Postgres (7001). Para eles, a proteção do AMI passa a ser apenas a ACL do `manager.conf`.
 
-Isso é deliberado. A `EASYPHONE_INPUT` libera um conjunto fixo de portas (22, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e **não** cobre SIP em TCP/5060 nem portas 50xx alternativas — com `RETURN`, um tronco já presente na whitelist continuava sendo descartado por falar numa porta fora dessa lista, uma falha silenciosa e difícil de diagnosticar. Trate o `whitelist.conf` como lista de **hosts confiáveis**, não como filtro de borda.
+Isso é deliberado. A `EASYPHONE_INPUT` libera um conjunto fixo de portas (a porta de gestão `SSH_PORT` — 22 por padrão —, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e **não** cobre SIP em TCP/5060 nem portas 50xx alternativas — com `RETURN`, um tronco já presente na whitelist continuava sendo descartado por falar numa porta fora dessa lista, uma falha silenciosa e difícil de diagnosticar. Trate o `whitelist.conf` como lista de **hosts confiáveis**, não como filtro de borda.
 
 As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem restritos às portas da `EASYPHONE_INPUT`.
 
