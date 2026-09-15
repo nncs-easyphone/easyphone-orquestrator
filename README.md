@@ -52,7 +52,10 @@ As imagens da stack estão no GitHub Container Registry (`ghcr.io/nncs-easyphone
 3. Guarde o token — o `init.sh` vai pedi-lo durante a execução
 
 Cada instalação exibe o log completo dentro de uma caixa `┌─ ─┐`.  
-O log completo da execução fica salvo em **`/tmp/easyphone-orquestrator-install.log`**.
+O log completo da execução fica salvo em **`logs/install-<data-hora>.log`**, na
+pasta do orquestrador. Cada execução gera um arquivo novo (com timestamp),
+preservando o histórico — o mesmo vale para `logs/run-<data-hora>.log` e
+`logs/migrate-<data-hora>.log`. Esses arquivos não são versionados (ver `.gitignore`).
 
 > Se o Docker já estiver instalado, o script pergunta se deseja reinstalar.  
 > O `systemctl enable docker` é executado **sempre** que o Docker está presente.

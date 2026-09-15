@@ -107,13 +107,26 @@ update_env() {
     { print }
     END { if (!replaced) print k "=" v }
   ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+  chown_owner "$file"
 }
+
+# ─────────────────────────────────────────────────────────────────────
+#  DIRETÓRIO DO PROJETO E OWNERSHIP
+# ─────────────────────────────────────────────────────────────────────
+REPO_DIR="$(dirname "$(readlink -f "$0")")"
+OWNER="${SUDO_USER:-}"
+# chown_owner: arquivos criados por este script (que roda como root) passam a
+# pertencer ao usuário real do repositório, mantendo a pasta editável por ele.
+chown_owner() { [[ -n "$OWNER" && "$(id -u)" -eq 0 ]] && chown "$OWNER" "$@" 2>/dev/null || true; }
 
 # ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
 # ─────────────────────────────────────────────────────────────────────
-LOGFILE="/tmp/easyphone-orquestrator-install.log"
+LOGS_DIR="$REPO_DIR/logs"
+mkdir -p "$LOGS_DIR"
+LOGFILE="$LOGS_DIR/install-$(date +%Y%m%d-%H%M%S).log"
 : > "$LOGFILE"
+chown_owner "$LOGS_DIR" "$LOGFILE"
 
 box_start() {
   local title="$1"
@@ -175,6 +188,7 @@ if [[ -f "$ENV_FILE" ]]; then
 else
   info "Criando .env a partir do .env.example..."
   cp "$ENV_EXAMPLE" "$ENV_FILE"
+  chown_owner "$ENV_FILE"
   FIRST_RUN=true
   CONFIG_ENABLED=true
 fi
@@ -350,7 +364,7 @@ fi
 # regerados quando o domínio ou a senha do Coturn mudam.
 step "0b/6 — Configuração gerada (Traefik WSS + Coturn)"
 
-ROOT_DIR="$(dirname "$(readlink -f "$0")")"
+ROOT_DIR="$REPO_DIR"
 
 # Escapa o que o lado direito de um `sed s|…|…|` interpreta.
 escape_sed_replacement() {
@@ -373,6 +387,7 @@ render_template() {
   # Diretiva sem valor faz o Coturn recusar a config: remove `chave=` vazio.
   # No caso do external-ip, cair fora deixa valer a autodetecção do CMD da imagem.
   sed -i.bak -E '/^[a-z0-9-]+=[[:space:]]*$/d' "$output" && rm -f "${output}.bak"
+  chown_owner "$(dirname "$output")" "$output"
   ok "${label} gerado em ${output}."
 }
 
@@ -566,7 +581,6 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 step "4/6 — Regras de Firewall"
 
-REPO_DIR="$(dirname "$(readlink -f "$0")")"
 FIREWALL_SCRIPT="$REPO_DIR/firewall-rules.sh"
 FIREWALL_UNIT_TEMPLATE="$REPO_DIR/systemd/easyphone-firewall.service.example"
 FIREWALL_UNIT_PATH="/etc/systemd/system/easyphone-firewall.service"

@@ -35,10 +35,20 @@ ask_no() {
 }
 
 # ─────────────────────────────────────────────────────────────────────
+#  DIRETÓRIO DO PROJETO E OWNERSHIP
+# ─────────────────────────────────────────────────────────────────────
+REPO_DIR="$(dirname "$(readlink -f "$0")")"
+OWNER="${SUDO_USER:-}"
+chown_owner() { [[ -n "$OWNER" && "$(id -u)" -eq 0 ]] && chown "$OWNER" "$@" 2>/dev/null || true; }
+
+# ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
 # ─────────────────────────────────────────────────────────────────────
-LOGFILE="/tmp/easyphone-orquestrator-run.log"
+LOGS_DIR="$REPO_DIR/logs"
+mkdir -p "$LOGS_DIR"
+LOGFILE="$LOGS_DIR/run-$(date +%Y%m%d-%H%M%S).log"
 : > "$LOGFILE"
+chown_owner "$LOGS_DIR" "$LOGFILE"
 
 box_start() {
   local title="$1"
@@ -82,7 +92,7 @@ load_env_safe
 
 USE_BUILD="${USE_BUILD:-false}"
 
-cd "$(dirname "$(readlink -f "$0")")"
+cd "$REPO_DIR"
 
 # ─────────────────────────────────────────────────────────────────────
 #  ARQUIVOS GERADOS PELO INIT.SH

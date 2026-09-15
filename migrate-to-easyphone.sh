@@ -51,7 +51,8 @@ cd "$REPO_DIR"
 
 ENV_FILE="$REPO_DIR/.env"
 COMPOSE_FILE="$REPO_DIR/docker-compose.yml"
-LOG_FILE="/tmp/easyphone-migrate.log"
+LOGS_DIR="$REPO_DIR/logs"
+LOG_FILE="$LOGS_DIR/migrate-$(date +%Y%m%d-%H%M%S).log"
 STATE_DIR="/var/lib/easyphone-migrate"
 BACKUP_DIR="/var/backups/easyphone-migrate"
 LOCK_FILE="/var/lock/easyphone-migrate.lock"
@@ -73,6 +74,11 @@ PG_MIGRATE_NAME="easyphone-pg-migrate"
 # ─────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
+
+# chown_owner: arquivos criados por este script (que roda como root) passam a
+# pertencer ao usuário real do repositório, mantendo a pasta editável por ele.
+OWNER="${SUDO_USER:-}"
+chown_owner() { [[ -n "$OWNER" && "$(id -u)" -eq 0 ]] && chown "$OWNER" "$@" 2>/dev/null || true; }
 
 info()  { echo -e "${BLUE}[INFO]${NC}  $*" | tee -a "$LOG_FILE"; }
 ok()    { echo -e "${GREEN}[OK]${NC}    $*" | tee -a "$LOG_FILE"; }
@@ -119,7 +125,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+mkdir -p "$LOGS_DIR"
 : > "$LOG_FILE"
+chown_owner "$LOGS_DIR" "$LOG_FILE"
 
 # ─────────────────────────────────────────────────────────────────────
 #  0. PREFLIGHT
@@ -186,6 +194,7 @@ update_env() {
     { print }
     END { if (!replaced) print k "=" v }
   ' "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
+  chown_owner "$ENV_FILE"
 }
 
 # remove_env: apaga do .env as linhas que começam exatamente com "<chave>=".
@@ -193,6 +202,7 @@ remove_env() {
   local key="$1"
   awk -v k="$key" 'index($0, k "=") == 1 { next } { print }' \
     "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
+  chown_owner "$ENV_FILE"
 }
 
 # rename_env OLD NEW: move o valor de OLD para NEW e remove OLD. Se NEW já
@@ -321,6 +331,10 @@ step "1/7 — Backup"
 
 TS="$(date +%Y%m%d-%H%M%S)"
 run cp -a "$ENV_FILE" "$BACKUP_DIR/env.$TS.bak"
+# O .env pertence ao usuário do repo; os backups em /var/backups ficam sob root.
+if ! $DRY_RUN; then
+  chown root:root "$BACKUP_DIR/env.$TS.bak" 2>/dev/null || true
+fi
 
 if [[ -n "$PG_CONTAINER" ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$PG_CONTAINER"; then
   info "pg_dump do banco atual (${OLD_PG_DB})…"
