@@ -51,13 +51,61 @@ ask_value() {
   printf -v "$var_name" '%s' "$ans"
 }
 
+# ask_secret: como ask_value, mas não ecoa a digitação nem exibe o valor
+# padrão. Enter mantém o valor atual da variável (se houver).
+ask_secret() {
+  local prompt="$1" default="$2" var_name="$3" ans
+  printf '%s' "$(echo -e "${YELLOW}?${NC} ${prompt} [Enter mantém o atual]: ")"
+  read -rs ans
+  echo
+  ans="${ans:-$default}"
+  printf -v "$var_name" '%s' "$ans"
+}
+
+# gen_hex_secret <bytes>: senha só com [0-9a-f] — segura para ODBC, URLs e .env.
+gen_hex_secret() {
+  local bytes="${1:-24}"
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex "$bytes"
+  elif [[ -r /dev/urandom ]]; then
+    head -c "$bytes" /dev/urandom | od -An -tx1 | tr -d ' \n'
+  else
+    error "Sem 'openssl' nem /dev/urandom para gerar segredo seguro."
+    return 1
+  fi
+}
+
+# is_safe_secret: aceita apenas caracteres que não quebram ODBC/URL/.env.
+is_safe_secret() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]; }
+
+# read_env <chave>: lê um valor do .env SEM source (evita executar o arquivo).
+read_env() { grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2-; }
+
+# load_env_safe: carrega o .env inteiro SEM executá-lo — atribui cada valor
+# literalmente. Evita que aspas, `$`, crases ou o JSON do service account
+# quebrem/executem algo e evita que valores exportados sobrescrevam o .env.
+load_env_safe() {
+  local line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" != *=* ]] && continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    if [[ "$val" == \"*\" || "$val" == \'*\' ]]; then val="${val:1:${#val}-2}"; fi
+    printf -v "$key" '%s' "$val"
+  done < "$ENV_FILE"
+}
+
+# update_env: grava o valor literal (via ENVIRON, sem interpretar escapes).
 update_env() {
   local key="$1" value="$2" file="$3"
-  awk -v key="$key" -v val="$value" '
-    BEGIN { replaced = 0 }
-    index($0, key "=") == 1 { print key "=" val; replaced = 1; next }
+  [[ "$value" == *$'\n'* ]] && { error "Valor de $key contém quebra de linha."; return 1; }
+  KEY="$key" VAL="$value" awk '
+    BEGIN { k = ENVIRON["KEY"]; v = ENVIRON["VAL"]; replaced = 0 }
+    index($0, k "=") == 1 { print k "=" v; replaced = 1; next }
     { print }
-    END { if (!replaced) print key "=" val }
+    END { if (!replaced) print k "=" v }
   ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 }
 
@@ -119,7 +167,7 @@ CONFIG_ENABLED=false
 if [[ -f "$ENV_FILE" ]]; then
   if ask_no "Deseja atualizar as variáveis do .env?"; then
     info "Carregando valores atuais do .env..."
-    set -a; source "$ENV_FILE"; set +a
+    load_env_safe
     CONFIG_ENABLED=true
   else
     ok "Arquivo .env já existe — pulando configuração."
@@ -148,8 +196,18 @@ if $CONFIG_ENABLED; then
     ask_value "Usuário do Postgres" "easyphone" POSTGRES_USER
     update_env "POSTGRES_USER" "$POSTGRES_USER" "$ENV_FILE"
 
-    printf -v RANDOM_PG_PASS '%s' "$(openssl rand -base64 18 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone')"
-    ask_value "Senha do Postgres" "$RANDOM_PG_PASS" POSTGRES_PASSWORD
+    if command -v docker >/dev/null 2>&1 && docker volume ls -q 2>/dev/null | grep -qE '_pgdata$'; then
+      warn "Já existe um volume de dados do Postgres neste host."
+      warn "Trocar POSTGRES_PASSWORD aqui NÃO altera a senha da role no banco —"
+      warn "isso quebra a conexão. Para trocar, use rotate-postgres-password.sh (ou ALTER ROLE)."
+    fi
+
+    printf -v RANDOM_PG_PASS '%s' "$(gen_hex_secret 24)"
+    ask_secret "Senha do Postgres" "$RANDOM_PG_PASS" POSTGRES_PASSWORD
+    while ! is_safe_secret "$POSTGRES_PASSWORD"; do
+      warn "Use apenas letras, números, ponto, hífen e underline (evita quebrar ODBC/URL/.env)."
+      ask_secret "Senha do Postgres" "$RANDOM_PG_PASS" POSTGRES_PASSWORD
+    done
     update_env "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" "$ENV_FILE"
 
     ask_value "Banco padrão" "easyphone" POSTGRES_DB
@@ -157,7 +215,7 @@ if $CONFIG_ENABLED; then
     box_end
   elif $FIRST_RUN; then
     box_start "Configuração Postgres"
-    printf -v POSTGRES_PASSWORD '%s' "$(openssl rand -base64 18 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone')"
+    printf -v POSTGRES_PASSWORD '%s' "$(gen_hex_secret 24)"
     update_env "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" "$ENV_FILE"
     ok "Senha do Postgres gerada automaticamente."
     box_end
@@ -168,19 +226,21 @@ if $CONFIG_ENABLED; then
   # ── API ──
   if ask_yes "Configurar variáveis da API (JWT, crypto key)?"; then
     box_start "Configuração da API"
-    printf -v RANDOM_JWT '%s' "$(openssl rand -base64 32 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone-jwt-secret')"
-    ask_value "JWT Secret" "$RANDOM_JWT" JWT_SECRET
+    warn "Trocar o JWT_SECRET invalida as sessões ativas."
+    warn "Trocar a DATA_SECRET_CRYPTOGRAPHY_KEY torna ILEGÍVEIS os dados já cifrados — em instalação que já roda, mantenha o valor atual (Enter)."
+    printf -v RANDOM_JWT '%s' "$(gen_hex_secret 32)"
+    ask_secret "JWT Secret" "$RANDOM_JWT" JWT_SECRET
     update_env "JWT_SECRET" "$JWT_SECRET" "$ENV_FILE"
 
-    printf -v RANDOM_CRYPTO '%s' "$(openssl rand -base64 24 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone-crypto-key-32bytes!')"
-    ask_value "Data Secret Cryptography Key" "$RANDOM_CRYPTO" DATA_SECRET_CRYPTOGRAPHY_KEY
+    printf -v RANDOM_CRYPTO '%s' "$(gen_hex_secret 24)"
+    ask_secret "Data Secret Cryptography Key" "$RANDOM_CRYPTO" DATA_SECRET_CRYPTOGRAPHY_KEY
     update_env "DATA_SECRET_CRYPTOGRAPHY_KEY" "$DATA_SECRET_CRYPTOGRAPHY_KEY" "$ENV_FILE"
     box_end
   elif $FIRST_RUN; then
     box_start "Configuração da API"
-    printf -v JWT_SECRET '%s' "$(openssl rand -base64 32 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone-jwt-secret')"
+    printf -v JWT_SECRET '%s' "$(gen_hex_secret 32)"
     update_env "JWT_SECRET" "$JWT_SECRET" "$ENV_FILE"
-    printf -v DATA_SECRET_CRYPTOGRAPHY_KEY '%s' "$(openssl rand -base64 24 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone-crypto-key-32bytes!')"
+    printf -v DATA_SECRET_CRYPTOGRAPHY_KEY '%s' "$(gen_hex_secret 24)"
     update_env "DATA_SECRET_CRYPTOGRAPHY_KEY" "$DATA_SECRET_CRYPTOGRAPHY_KEY" "$ENV_FILE"
     ok "JWT Secret e Cryptography Key gerados automaticamente."
     box_end
@@ -194,13 +254,17 @@ if $CONFIG_ENABLED; then
     ask_value "Usuário do Coturn" "easyphone" COTURN_USER
     update_env "COTURN_USER" "$COTURN_USER" "$ENV_FILE"
 
-    printf -v RANDOM_COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone')"
-    ask_value "Senha do Coturn" "$RANDOM_COTURN_PASS" COTURN_PASS
+    printf -v RANDOM_COTURN_PASS '%s' "$(gen_hex_secret 24)"
+    ask_secret "Senha do Coturn" "$RANDOM_COTURN_PASS" COTURN_PASS
+    while ! is_safe_secret "$COTURN_PASS"; do
+      warn "Use apenas letras, números, ponto, hífen e underline."
+      ask_secret "Senha do Coturn" "$RANDOM_COTURN_PASS" COTURN_PASS
+    done
     update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
     box_end
   elif $FIRST_RUN; then
     box_start "Configuração Coturn"
-    printf -v COTURN_PASS '%s' "$(openssl rand -base64 18 2>/dev/null | tr -d '/@:?#% ' || echo 'easyphone')"
+    printf -v COTURN_PASS '%s' "$(gen_hex_secret 24)"
     update_env "COTURN_PASS" "$COTURN_PASS" "$ENV_FILE"
     ok "Senha do Coturn gerada automaticamente."
     box_end
@@ -276,11 +340,9 @@ if $CONFIG_ENABLED; then
   ok ".env configurado com sucesso!"
 fi
 
-# Carrega .env para os steps seguintes (se existe)
+# Carrega .env para os steps seguintes (se existe) — sem executar o arquivo
 if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  source "$ENV_FILE"
-  set +a
+  load_env_safe
 fi
 
 # ─────────────────────────────────────────────────────────────────────

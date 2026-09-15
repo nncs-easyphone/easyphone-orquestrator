@@ -65,9 +65,20 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-set -a
-source "$ENV_FILE"
-set +a
+# Carrega o .env sem executá-lo (sem `source`): atribui cada valor literalmente.
+load_env_safe() {
+  local line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" != *=* ]] && continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    if [[ "$val" == \"*\" || "$val" == \'*\' ]]; then val="${val:1:${#val}-2}"; fi
+    printf -v "$key" '%s' "$val"
+  done < "$ENV_FILE"
+}
+load_env_safe
 
 USE_BUILD="${USE_BUILD:-false}"
 
