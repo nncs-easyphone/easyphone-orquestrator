@@ -280,17 +280,14 @@ if $CONFIG_ENABLED; then
     warn "Firebase Service Account não foi alterado. Edite manualmente no .env se necessário."
   fi
 
-  # ── Firebase URLs ──
-  if ask_yes "Configurar URLs do Firebase?"; then
+  # ── Firebase ──
+  if ask_yes "Configurar URL do Firebase?"; then
     box_start "Configuração Firebase"
-    ask_value "URL do Firebase Hosting" "https://services.easyphone.com.br" FIREBASE_URL
+    ask_value "URL base das Cloud Functions" "https://us-central1-easyfone-bc601.cloudfunctions.net" FIREBASE_URL
     update_env "FIREBASE_URL" "$FIREBASE_URL" "$ENV_FILE"
-
-    ask_value "URL das Cloud Functions" "https://us-central1-easyfone-bc601.cloudfunctions.net" FIREBASE_FUNCTIONS_URL
-    update_env "FIREBASE_FUNCTIONS_URL" "$FIREBASE_FUNCTIONS_URL" "$ENV_FILE"
     box_end
   else
-    ok "URLs do Firebase mantidas como estão."
+    ok "URL do Firebase mantida como está."
   fi
 
   # ── License ──

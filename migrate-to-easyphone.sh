@@ -395,8 +395,6 @@ step "4/7 — Ajustar .env (nomes novos + obsoletas)"
 
 # Nomes antigos -> padrão atual (ver README/contrato de env).
 ENV_RENAMES=(
-  "EASYPHONE_FIREBASE_FUNCTIONS_URL|FIREBASE_FUNCTIONS_URL"
-  "EASYPHONE_FIREBASE_URL|FIREBASE_URL"
   "EASYPHONE_FIREBASE_SERVICE_ACCOUNT|FIREBASE_SERVICE_ACCOUNT"
   "EASYPHONE_LICENSE_CLIENT_ID|LICENSE_CLIENT_ID"
   "EASYPHONE_LICENSE_HARDWARE_ID|LICENSE_HARDWARE_ID"
@@ -430,6 +428,15 @@ OBSOLETE_ENV_KEYS=(
 if ! $DRY_RUN; then
   for pair in "${ENV_RENAMES[@]}"; do rename_env "${pair%%|*}" "${pair##*|}"; done
   for key in "${OBSOLETE_ENV_KEYS[@]}"; do remove_env "$key"; done
+
+  # Unifica FIREBASE_URL: o valor passa a ser a base DIRETA das cloud functions
+  # (antes havia a base do Hosting + a das functions; agora é só uma).
+  fb_functions="$(read_env FIREBASE_FUNCTIONS_URL)"
+  [[ -z "$fb_functions" ]] && fb_functions="$(read_env EASYPHONE_FIREBASE_FUNCTIONS_URL)"
+  remove_env "FIREBASE_URL"; remove_env "EASYPHONE_FIREBASE_URL"
+  remove_env "FIREBASE_FUNCTIONS_URL"; remove_env "EASYPHONE_FIREBASE_FUNCTIONS_URL"
+  [[ -n "$fb_functions" ]] && update_env "FIREBASE_URL" "$fb_functions"
+
   update_env "POSTGRES_USER" "$NEW_PG_USER"
   update_env "POSTGRES_DB" "$NEW_PG_DB"
 fi
