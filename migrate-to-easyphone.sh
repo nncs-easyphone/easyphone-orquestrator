@@ -215,7 +215,7 @@ done
 # ─────────────────────────────────────────────────────────────────────
 step "3/7 — Copiar volumes ${OLD_PROJECT}_* → ${NEW_PROJECT}_*"
 
-if ${#OLD_VOLUMES[@]} -gt 0; then
+if [[ ${#OLD_VOLUMES[@]} -gt 0 ]]; then
   total_kb=0
   for v in "${OLD_VOLUMES[@]}"; do
     kb=$(docker run --rm -v "${v}:/v:ro" alpine du -sk /v 2>/dev/null | awk '{print $1}')
