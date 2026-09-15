@@ -1,10 +1,17 @@
 name: easyphone
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   traefik:
     image: traefik:v3
     container_name: easyphone-traefik
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -36,6 +43,7 @@ services:
     image: postgres:17-alpine
     container_name: easyphone-pg
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "7001:5432"
     environment:
@@ -58,6 +66,7 @@ services:
     image: edoburu/pgbouncer:latest
     container_name: easyphone-pgbouncer
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "7003:6432"
     environment:
@@ -112,6 +121,7 @@ services:
     image: ldez/traefik-certs-dumper:v2.10.0
     container_name: easyphone-certs-dumper
     restart: unless-stopped
+    logging: *default-logging
     command:
       - "file"
       - "--version=v2"
@@ -130,6 +140,7 @@ services:
     image: coturn/coturn:latest
     container_name: easyphone-coturn
     restart: unless-stopped
+    logging: *default-logging
     network_mode: host
     # Sem `command`: o CMD oficial da imagem já é
     #   ["--log-file=stdout", "--external-ip=$(detect-external-ip)"]
@@ -152,6 +163,7 @@ services:
       dockerfile: Dockerfile
     container_name: easyphone-asterisk
     restart: unless-stopped
+    logging: *default-logging
     network_mode: host
     environment:
       POSTGRES_HOST: 127.0.0.1
@@ -245,6 +257,7 @@ services:
       dockerfile: Dockerfile
     container_name: easyphone-api
     restart: unless-stopped
+    logging: *default-logging
     ports: []
     networks:
       - default
@@ -318,6 +331,7 @@ services:
       dockerfile: Dockerfile
     container_name: easyphone-web
     restart: unless-stopped
+    logging: *default-logging
     ports: []
     networks:
       - default
@@ -355,6 +369,7 @@ services:
       dockerfile: Dockerfile
     container_name: easyphone-backup
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       postgres:
         condition: service_healthy
