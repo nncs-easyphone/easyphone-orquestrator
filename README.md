@@ -441,9 +441,23 @@ sudo bash migrate-to-easyphone.sh --cleanup    # remove o resíduo antigo (após
 O script detecta o projeto/volumes reais pelo Docker, copia os volumes para os
 nomes-alvo, renomeia banco/role e **alinha a senha da role ao `POSTGRES_PASSWORD`
 do `.env`** — regenerando-a em hex automaticamente se tiver caracteres que quebram
-ODBC/URL (ex.: `+`), e validando o login TCP antes de encerrar. Flags:
-`--dry-run`, `--password <valor>`, `--keep-db-password`, `--skip-db`,
-`--skip-firewall`, `--cleanup`, `--force`, `--old-project <nome>`.
+ODBC/URL (ex.: `+`) — e valida o login TCP antes de encerrar.
+
+Segurança de dados: nunca usa `down -v`/`volume prune`; faz backup (`.env` +
+`pg_dump` + snapshot dos volumes) **antes** de qualquer mutação; não sobrescreve
+volumes com dados; exige `PG_VERSION` no volume (nunca inicializa banco vazio);
+aborta se o volume estiver em uso ou sem espaço; e nada antigo é apagado antes do
+sucesso (`--cleanup` explícito, pede digitar `APAGAR`).
+
+Tudo (log, estado e backups) fica em `logs/`: `logs/migrate.state`,
+`logs/backups/<RUN_ID>/` e `logs/migrate-<data>.log`.
+
+O script é **idempotente e retomável**: se for interrompido, basta rodar de novo —
+ele detecta o estado (inclusive o deixado pelo script antigo) e continua de onde
+parou. Para recomeçar do zero use `--restart`. Flags: `--dry-run`, `--yes`,
+`--restart`, `--resume`, `--skip-volume-backup`, `--password <valor>`,
+`--keep-db-password`, `--skip-db`, `--skip-firewall`, `--cleanup`, `--force`,
+`--old-project <nome>`.
 
 ## TODO
 
