@@ -138,6 +138,7 @@ services:
       - coturn_certs:/certs
     depends_on:
       - traefik
+      - api
 
   coturn:
     image: coturn/coturn:latest
@@ -157,6 +158,7 @@ services:
     cap_add:
       - NET_ADMIN
     depends_on:
+      - asterisk
       - certs-dumper
 
   asterisk:
