@@ -27,6 +27,12 @@ services:
     networks:
       - default          # FIX 1: adicionado para garantir alcance a api/web mesmo sem label
       - traefik-public
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     command:
       - "--providers.docker=true"
       - "--providers.docker.network=easyphone-traefik-public"
