@@ -41,6 +41,9 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme.json"
     environment:
       - HTTPREQ_ENDPOINT=http://api:7002/dns-challenge
+    depends_on:
+      api:
+        condition: service_healthy
 
   postgres:
     image: postgres:17-alpine
@@ -121,13 +124,13 @@ services:
   # que o Coturn lê (TURNS na 5349). O --watch reescreve os arquivos a cada
   # renovação, sem intervenção manual.
   certs-dumper:
-    image: ldez/traefik-certs-dumper:v2.10.0
+    image: ldez/traefik-certs-dumper:v2.11.4
     container_name: easyphone-certs-dumper
     restart: unless-stopped
     logging: *default-logging
     command:
       - "file"
-      - "--version=v2"
+      - "--version=v3"
       - "--watch"
       - "--source=/traefik/acme.json"
       - "--dest=/certs"
@@ -137,8 +140,8 @@ services:
       - traefik_data:/traefik:ro
       - coturn_certs:/certs
     depends_on:
-      - traefik
-      - api
+      traefik:
+        condition: service_healthy
 
   coturn:
     image: coturn/coturn:latest
