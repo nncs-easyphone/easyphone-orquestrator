@@ -58,8 +58,8 @@ As imagens da stack estão no GitHub Container Registry (`ghcr.io/nncs-easyphone
 Cada instalação exibe o log completo dentro de uma caixa `┌─ ─┐`.  
 O log completo da execução fica salvo em **`logs/install-<data-hora>.log`**, na
 pasta do orquestrador. Cada execução gera um arquivo novo (com timestamp),
-preservando o histórico — o mesmo vale para `logs/run-<data-hora>.log` e
-`logs/migrate-<data-hora>.log`. Esses arquivos não são versionados (ver `.gitignore`).
+preservando o histórico — o mesmo vale para `logs/run-<data-hora>.log`. Esses
+arquivos não são versionados (ver `.gitignore`).
 
 > Se o Docker já estiver instalado, o script pergunta se deseja reinstalar.  
 > O `systemctl enable docker` é executado **sempre** que o Docker está presente.
@@ -134,7 +134,6 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 |---|---|
 | `init.sh` | Script de provisionamento (Docker, ghcr, iptables, firewall, compose) |
 | `run.sh` | Script para subir a stack |
-| `migrate-to-easyphone.sh` | Migra uma instalação antiga (`easyfone` → `easyphone`): volumes, role/db e firewall, alinhando a senha do Postgres ao `.env` |
 | `firewall-rules.sh` | Regras de firewall com chain dedicada `EASYPHONE_INPUT` |
 | `systemd/easyphone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
 | `whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `firewall-rules.sh` |
@@ -425,39 +424,6 @@ turnutils_uclient -T -u easyphone -w "$COTURN_PASS" pbx.exemplo.com
 ```
 
 Verifique também se a faixa de relay `49152-65535/udp` e a faixa de RTP `10000-20000/udp` estão liberadas no firewall do provedor de nuvem (além do da VM).
-
-## Migração de instalação antiga (`easyfone` → `easyphone`)
-
-Em uma instalação criada pelo orquestrador antigo, rode **depois do `git pull`** e
-**antes** de subir a stack:
-
-```bash
-sudo bash migrate-to-easyphone.sh --dry-run   # confere o plano (nada é alterado)
-sudo bash migrate-to-easyphone.sh             # executa a migração
-./run.sh                                       # sobe a stack
-sudo bash migrate-to-easyphone.sh --cleanup    # remove o resíduo antigo (após validar)
-```
-
-O script detecta o projeto/volumes reais pelo Docker, copia os volumes para os
-nomes-alvo, renomeia banco/role e **alinha a senha da role ao `POSTGRES_PASSWORD`
-do `.env`** — regenerando-a em hex automaticamente se tiver caracteres que quebram
-ODBC/URL (ex.: `+`) — e valida o login TCP antes de encerrar.
-
-Segurança de dados: nunca usa `down -v`/`volume prune`; faz backup (`.env` +
-`pg_dump` + snapshot dos volumes) **antes** de qualquer mutação; não sobrescreve
-volumes com dados; exige `PG_VERSION` no volume (nunca inicializa banco vazio);
-aborta se o volume estiver em uso ou sem espaço; e nada antigo é apagado antes do
-sucesso (`--cleanup` explícito, pede digitar `APAGAR`).
-
-Tudo (log, estado e backups) fica em `logs/`: `logs/migrate.state`,
-`logs/backups/<RUN_ID>/` e `logs/migrate-<data>.log`.
-
-O script é **idempotente e retomável**: se for interrompido, basta rodar de novo —
-ele detecta o estado (inclusive o deixado pelo script antigo) e continua de onde
-parou. Para recomeçar do zero use `--restart`. Flags: `--dry-run`, `--yes`,
-`--restart`, `--resume`, `--skip-volume-backup`, `--password <valor>`,
-`--keep-db-password`, `--skip-db`, `--skip-firewall`, `--cleanup`, `--force`,
-`--old-project <nome>`.
 
 ## TODO
 
