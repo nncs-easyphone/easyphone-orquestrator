@@ -34,6 +34,7 @@ services:
       retries: 5
       start_period: 10s
     command:
+      - "--ping=true"
       - "--providers.docker=true"
       - "--providers.docker.network=easyphone-traefik-public"
       - "--providers.docker.exposedbydefault=false"
