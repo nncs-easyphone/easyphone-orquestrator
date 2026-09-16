@@ -504,7 +504,9 @@ if phase_done 1; then
 else
   run mkdir -p "$BACKUP_DIR/$TS/volumes"
   run cp -a "$ENV_FILE" "$BACKUP_DIR/$TS/env.bak"
-  [[ -f "$BACKUP_DIR/$TS/env.bak" ]] || { error "Falha no backup do .env. Abortando."; exit 1; }
+  if ! $DRY_RUN; then
+    [[ -f "$BACKUP_DIR/$TS/env.bak" ]] || { error "Falha no backup do .env. Abortando."; exit 1; }
+  fi
   if [[ -n "$PG_CONTAINER" ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$PG_CONTAINER"; then
     info "pg_dump do banco ${OLD_PG_DB}…"
     if ! $DRY_RUN; then
@@ -544,7 +546,7 @@ fi
 #  3. SNAPSHOT + CÓPIA DOS VOLUMES
 # ─────────────────────────────────────────────────────────────────────
 step "3/7 — Snapshot e cópia dos volumes"
-vol_size_kb() { docker run --rm -v "$1":/v:ro alpine du -sk /v 2>/dev/null | awk '{print $1}'; }
+vol_size_kb() { $DRY_RUN && { echo 0; return 0; }; docker run --rm -v "$1":/v:ro alpine du -sk /v 2>/dev/null | awk '{print $1}'; }
 
 if phase_done 3; then
   ok "Fase 3 já concluída — pulando."
@@ -564,8 +566,10 @@ else
     for v in "${OLD_VOLUMES[@]}"; do
       run docker run --rm -v "$v":/from:ro -v "$BACKUP_DIR/$TS/volumes":/backup \
         alpine tar -C /from -cf "/backup/$v.tar" .
-      [[ -f "$BACKUP_DIR/$TS/volumes/$v.tar" ]] || { error "Falha no snapshot de '$v'. Abortando."; exit 1; }
-      ! $DRY_RUN && ok "Snapshot: $v.tar"
+      if ! $DRY_RUN; then
+        [[ -f "$BACKUP_DIR/$TS/volumes/$v.tar" ]] || { error "Falha no snapshot de '$v'. Abortando."; exit 1; }
+        ok "Snapshot: $v.tar"
+      fi
     done
   else
     warn "--skip-volume-backup: SEM snapshot dos volumes."
