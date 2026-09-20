@@ -309,6 +309,7 @@ services:
       LICENSE_HARDWARE_ID: ${LICENSE_HARDWARE_ID}
       CORPORATE_ALLOW_API_KEY: ${CORPORATE_ALLOW_API_KEY}
       CORPORATE_API_KEY: ${CORPORATE_API_KEY}
+      IVR_HEALTH_CHECK_API_KEY: ${IVR_HEALTH_CHECK_API_KEY}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easyphone-traefik-public"
