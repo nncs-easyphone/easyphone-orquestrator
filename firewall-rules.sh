@@ -38,15 +38,34 @@ fi
 # ── Porta de gestão (SSH) ─────────────────────────────────────────────
 # Lida do .env ao lado deste script para valer também no boot
 # (easyphone-firewall.service executa o script direto, sem carregar o .env).
-# Fallback 22 quando ausente ou inválida.
+# Fallback 22 quando ausente ou inválida. Aspas e \r (.env editado no Windows)
+# são removidos: SSH_PORT="2244" caía no fallback e liberava a 22 no lugar da 2244.
 REPO_DIR="$(dirname "$(readlink -f "$0")")"
-SSH_PORT="$(grep -E '^SSH_PORT=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+SSH_PORT="$(grep -E '^SSH_PORT=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "[:space:]\"'" || true)"
 if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
   if [[ -n "$SSH_PORT" ]]; then
     warn "SSH_PORT inválida no .env ('$SSH_PORT') — usando 22."
+  else
+    warn "SSH_PORT ausente em $REPO_DIR/.env — usando 22."
   fi
   SSH_PORT=22
 fi
+
+# ── Salvaguarda anti-lockout ──────────────────────────────────────────
+# Libera também as portas em que o sshd está CONFIGURADO para escutar
+# (sshd -T resolve sshd_config + sshd_config.d e vale com socket activation).
+# Sem isto, um SSH_PORT divergente do sshd bloqueia toda conexão nova: a sessão
+# aberta sobrevive pelo ESTABLISHED e o problema só aparece quando ela cai.
+SSHD_PORTS=()
+if command -v sshd &>/dev/null; then
+  mapfile -t SSHD_PORTS < <(sshd -T 2>/dev/null | awk '$1 == "port" { print $2 }' | sort -un)
+fi
+for p in "${SSHD_PORTS[@]}"; do
+  if [[ "$p" != "$SSH_PORT" ]]; then
+    warn "sshd escuta na porta $p, mas SSH_PORT=$SSH_PORT — liberando as duas."
+    warn "Ajuste SSH_PORT no .env para refletir a porta real do sshd."
+  fi
+done
 
 cat << "EOF"
   ╔══════════════════════════════════════════════╗
@@ -78,6 +97,9 @@ echo
 # Origens do whitelist.conf não passam por esta lista: a EASYPHONE_WHITELIST faz
 # ACCEPT antes, dando acesso total a elas (ver whitelist-rules.sh).
 PORTS_TCP=("$SSH_PORT" 80 443 5061 3478 5349)
+for p in "${SSHD_PORTS[@]}"; do
+  [[ " ${PORTS_TCP[*]} " == *" $p "* ]] || PORTS_TCP+=("$p")
+done
 PORTS_UDP=(5060 3478 5349)
 
 # Faixa de RTP (mídia/áudio das chamadas) — DEVE casar com rtp.conf (rtpstart/rtpend).

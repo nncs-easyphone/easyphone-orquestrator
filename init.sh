@@ -794,6 +794,7 @@ echo -e "    ${BLUE}▶${NC} Subir a stack:         ${BOLD}docker compose up -d$
 echo -e "    ${BLUE}▶${NC} Parar a stack:          ${BOLD}docker compose down${NC}"
 echo -e "    ${BLUE}▶${NC} Ver logs:               ${BOLD}docker compose logs -f${NC}"
 echo -e "    ${BLUE}▶${NC} Reaplicar firewall:     ${BOLD}sudo bash firewall-rules.sh${NC}"
+echo -e "    ${BLUE}▶${NC} Conferir porta SSH:     ${BOLD}sudo iptables -S EASYPHONE_INPUT | grep \"dport ${SSH_PORT:-22} \"${NC}"
 echo
 echo -e "${BOLD}${BLUE}═══════════════════  LOG COMPLETO  ═══════════════════${NC}"
 echo

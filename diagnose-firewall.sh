@@ -37,7 +37,7 @@ fi
 
 # Porta de gestão (SSH) esperada, conforme o .env do orquestrador.
 REPO_DIR="$(dirname "$(readlink -f "$0")")"
-SSH_PORT="$(grep -E '^SSH_PORT=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
+SSH_PORT="$(grep -E '^SSH_PORT=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "[:space:]\"'")"
 if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
   SSH_PORT=22
 fi
