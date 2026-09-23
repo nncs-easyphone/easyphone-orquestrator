@@ -51,11 +51,19 @@ ask_value() {
   printf -v "$var_name" '%s' "$ans"
 }
 
-# ask_secret: como ask_value, mas não ecoa a digitação nem exibe o valor
-# padrão. Enter mantém o valor atual da variável (se houver).
+# ask_secret: como ask_value, mas não ecoa a digitação. Se a variável já tem
+# valor, Enter o mantém ("[Enter mantém o atual]"); senão, Enter aceita o
+# segredo aleatório sugerido ("[Random]").
 ask_secret() {
-  local prompt="$1" default="$2" var_name="$3" ans
-  printf '%s' "$(echo -e "${YELLOW}?${NC} ${prompt} [Enter mantém o atual]: ")"
+  local prompt="$1" default="$2" var_name="$3" ans current label
+  current="${!var_name:-}"
+  if [[ -n "$current" ]]; then
+    default="$current"
+    label="Enter mantém o atual"
+  else
+    label="Random"
+  fi
+  printf '%s' "$(echo -e "${YELLOW}?${NC} ${prompt} [${label}]: ")"
   read -rs ans
   echo
   ans="${ans:-$default}"
@@ -121,9 +129,16 @@ load_env_safe() {
 }
 
 # update_env: grava o valor literal (via ENVIRON, sem interpretar escapes).
+# Antes da primeira alteração da execução, salva um backup do .env (estado
+# anterior) — assim um valor pode sempre ser restaurado.
 update_env() {
-  local key="$1" value="$2" file="$3"
+  local key="$1" value="$2" file="$3" old
   [[ "$value" == *$'\n'* ]] && { error "Valor de $key contém quebra de linha."; return 1; }
+  old="$(grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  if [[ "$old" != "$value" && "${ENV_BACKED_UP:-false}" != true ]]; then
+    backup_env "$file"
+    ENV_BACKED_UP=true
+  fi
   KEY="$key" VAL="$value" awk '
     BEGIN { k = ENVIRON["KEY"]; v = ENVIRON["VAL"]; replaced = 0 }
     index($0, k "=") == 1 { print k "=" v; replaced = 1; next }
@@ -141,6 +156,24 @@ OWNER="${SUDO_USER:-}"
 # chown_owner: arquivos criados por este script (que roda como root) passam a
 # pertencer ao usuário real do repositório, mantendo a pasta editável por ele.
 chown_owner() { [[ -n "$OWNER" && "$(id -u)" -eq 0 ]] && chown "$OWNER" "$@" 2>/dev/null || true; }
+
+# backup_env <arquivo>: guarda uma cópia do .env na raiz do projeto com
+# timestamp (env-HH-MM-SS-DD-MM-YY.bkp), para rollback. Retenção total.
+# Não faz nada se o arquivo não existir.
+backup_env() {
+  local file="${1:-$ENV_FILE}" base dest n=1
+  [[ -f "$file" ]] || return 0
+  base="env-$(date +%H-%M-%S-%d-%m-%y)"
+  dest="$REPO_DIR/${base}.bkp"
+  while [[ -e "$dest" ]]; do
+    dest="$REPO_DIR/${base}-${n}.bkp"
+    n=$((n + 1))
+  done
+  cp -p "$file" "$dest"
+  chmod 600 "$dest"
+  chown_owner "$dest"
+  ok "Backup do .env salvo em ${dest}"
+}
 
 # ─────────────────────────────────────────────────────────────────────
 #  SISTEMA DE LOGS — caixa emoldurada + arquivo
@@ -199,6 +232,7 @@ ENV_EXAMPLE="$(dirname "$(readlink -f "$0")")/.env.example"
 
 FIRST_RUN=false
 CONFIG_ENABLED=false
+ENV_BACKED_UP=false
 
 if [[ -f "$ENV_FILE" ]]; then
   if ask_no "Deseja atualizar as variáveis do .env?"; then
@@ -214,6 +248,8 @@ else
   chown_owner "$ENV_FILE"
   FIRST_RUN=true
   CONFIG_ENABLED=true
+  backup_env "$ENV_FILE"
+  ENV_BACKED_UP=true
 fi
 
 if $CONFIG_ENABLED; then
@@ -341,6 +377,31 @@ if $CONFIG_ENABLED; then
     box_end
   else
     ok "Variáveis da API mantidas como estão."
+  fi
+
+  # ── Health Check das URAs (Zabbix) ──
+  # A KEY é apresentada pelo Zabbix no header `x-api-key` ao consultar
+  # GET /monitoring/ivr-health-check. Sem ela, o endpoint responde 401.
+  if ask_yes "Configurar a API Key do Health Check das URAs (Zabbix)?"; then
+    box_start "Health Check das URAs"
+    printf -v RANDOM_IVR_HC '%s' "$(gen_hex_secret 24)"
+    ask_secret "API Key do Health Check das URAs (usada pelo Zabbix em x-api-key)" \
+      "$RANDOM_IVR_HC" IVR_HEALTH_CHECK_API_KEY
+    while ! is_safe_secret "$IVR_HEALTH_CHECK_API_KEY"; do
+      warn "Use apenas letras, números, ponto, hífen e underline."
+      ask_secret "API Key do Health Check das URAs (usada pelo Zabbix em x-api-key)" \
+        "$RANDOM_IVR_HC" IVR_HEALTH_CHECK_API_KEY
+    done
+    update_env "IVR_HEALTH_CHECK_API_KEY" "$IVR_HEALTH_CHECK_API_KEY" "$ENV_FILE"
+    box_end
+  elif $FIRST_RUN; then
+    box_start "Health Check das URAs"
+    printf -v IVR_HEALTH_CHECK_API_KEY '%s' "$(gen_hex_secret 24)"
+    update_env "IVR_HEALTH_CHECK_API_KEY" "$IVR_HEALTH_CHECK_API_KEY" "$ENV_FILE"
+    ok "API Key do Health Check das URAs gerada automaticamente."
+    box_end
+  else
+    ok "API Key do Health Check das URAs mantida como está."
   fi
 
   # ── Coturn ──
