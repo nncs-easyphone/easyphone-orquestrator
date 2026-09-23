@@ -379,37 +379,37 @@ services:
       api:
         condition: service_started
 
-#  backup:
-#    image: ghcr.io/nncs-easyphone/easyphone-backup:main
-#    build:
-#      context: ../easyphone-backup
-#      dockerfile: Dockerfile
-#    container_name: easyphone-backup
-#    restart: unless-stopped
-#    logging: *default-logging
-#    depends_on:
-#      postgres:
-#        condition: service_healthy
-#      asterisk:
-#        condition: service_healthy
-#    environment:
-#      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-#      ASTERISK_MONITOR_PATH: /var/spool/asterisk/monitor
-#      ASTERISK_PATH_MOH: /var/lib/asterisk/moh
-#      ASTERISK_PATH_URA: /var/lib/asterisk/sounds/ura
-#      ASTERISK_PATH_SOUNDS_EASYPHONE: /var/lib/asterisk/sounds/easyphone
-#      BACKUP_OUTPUT_PATH: /backups
-#      BACKUP_CRON_SCHEDULE: "0 2 * * *"
-#      BACKUP_ENABLED: "true"
-#      FIREBASE_URL: ${FIREBASE_URL}
-#      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
-#      LICENSE_CLIENT_ID: ${LICENSE_CLIENT_ID}
-#      LICENSE_HARDWARE_ID: ${LICENSE_HARDWARE_ID}
-#    volumes:
-#      - asterisk_monitor:/var/spool/asterisk/monitor:ro
-#      # Assets de áudio (moh, sounds/ura, sounds/easyphone)
-#      - asterisk_lib:/var/lib/asterisk:ro
-#      - backup_data:/backups
+  backup:
+    image: ghcr.io/nncs-easyphone/easyphone-backup:main
+    build:
+      context: ../easyphone-backup
+      dockerfile: Dockerfile
+    container_name: easyphone-backup
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      asterisk:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      ASTERISK_MONITOR_PATH: /var/spool/asterisk/monitor
+      ASTERISK_PATH_MOH: /var/lib/asterisk/moh
+      ASTERISK_PATH_URA: /var/lib/asterisk/sounds/ura
+      ASTERISK_PATH_SOUNDS_EASYPHONE: /var/lib/asterisk/sounds/easyphone
+      BACKUP_OUTPUT_PATH: /backups
+      BACKUP_CRON_SCHEDULE: "0 2 * * *"
+      BACKUP_ENABLED: "true"
+      FIREBASE_URL: ${FIREBASE_URL}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
+      LICENSE_CLIENT_ID: ${LICENSE_CLIENT_ID}
+      LICENSE_HARDWARE_ID: ${LICENSE_HARDWARE_ID}
+    volumes:
+      - asterisk_monitor:/var/spool/asterisk/monitor:ro
+      # Assets de áudio (moh, sounds/ura, sounds/easyphone)
+      - asterisk_lib:/var/lib/asterisk:ro
+      - backup_data:/backups
 
 volumes:
   pgdata:
