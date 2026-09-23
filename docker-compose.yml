@@ -412,9 +412,10 @@ services:
       # Assets de áudio (moh, sounds/ura, sounds/easyphone)
       - asterisk_lib:/var/lib/asterisk:ro
       - backup_data:/app/backup
-      # Estado/logs em pasta física do host. Em hosts com SELinux enforcing
-      # (ex.: Fedora), acrescente `:Z` ao final da linha.
-      - ./states:/app/states
+      # Estado/logs em pasta física do host. `:Z` rotula para SELinux (hosts
+      # Fedora) e é ignorado em hosts sem SELinux; o dono (1001:1001) é
+      # garantido pelo init.sh/run.sh, já que o bind mount não herda o da imagem.
+      - ./states:/app/states:Z
 
 volumes:
   pgdata:

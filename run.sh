@@ -95,6 +95,21 @@ USE_BUILD="${USE_BUILD:-false}"
 cd "$REPO_DIR"
 
 # ─────────────────────────────────────────────────────────────────────
+#  ESTADO/LOGS DO BACKUP (bind mount em /app/states)
+# ─────────────────────────────────────────────────────────────────────
+# O container roda como uid/gid 1001 (runner) e um bind mount NÃO herda o dono
+# da imagem — sem o chown o serviço falha com EACCES ao gravar os `.state`.
+# Espelha o que o init.sh faz, para o run.sh não depender dele.
+BACKUP_STATES_DIR="$REPO_DIR/states"
+mkdir -p "$BACKUP_STATES_DIR"
+if [[ "$(id -u)" -eq 0 ]]; then
+  chown 1001:1001 "$BACKUP_STATES_DIR"
+  ok "Pasta de estado/logs do backup: ${BACKUP_STATES_DIR} (dono 1001:1001)"
+else
+  warn "Não é root: garanta que ${BACKUP_STATES_DIR} pertença a 1001:1001 (ou rode 'sudo bash run.sh')."
+fi
+
+# ─────────────────────────────────────────────────────────────────────
 #  ARQUIVOS GERADOS PELO INIT.SH
 # ─────────────────────────────────────────────────────────────────────
 # O compose faz bind mount de coturn/turnserver.conf. Se o arquivo não existir,
