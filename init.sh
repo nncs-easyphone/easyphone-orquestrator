@@ -680,18 +680,6 @@ if ! command -v iptables &>/dev/null; then
       ok "iptables instalado."
       IPTABLES_INSTALLED=true
       INSTALLED+=("iptables")
-
-      if ask_yes "Instalar iptables-persistent (persistência de regras entre reboots)?"; then
-        box_start "Instalação do iptables-persistent"
-        echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-        echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent 2>&1 | tee -a "$LOGFILE"; then
-          error "Falha na instalação do iptables-persistent."
-        else
-          ok "iptables-persistent instalado."
-        fi
-        box_end
-      fi
     fi
     box_end
   else
@@ -700,20 +688,6 @@ if ! command -v iptables &>/dev/null; then
 else
   ok "iptables já está instalado: $(iptables --version 2>/dev/null)"
   IPTABLES_INSTALLED=true
-
-  if ! dpkg-query -W -f='${Status}' iptables-persistent 2>/dev/null | grep -q "install ok installed"; then
-    if ask_yes "Instalar iptables-persistent para persistência de regras?"; then
-      box_start "Instalação do iptables-persistent"
-      echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-      echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-      if ! DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent 2>&1 | tee -a "$LOGFILE"; then
-        error "Falha na instalação do iptables-persistent."
-      else
-        ok "iptables-persistent instalado."
-      fi
-      box_end
-    fi
-  fi
 fi
 
 divider
@@ -734,12 +708,11 @@ elif ! $IPTABLES_INSTALLED; then
   warn "iptables não está instalado; não é possível aplicar regras de firewall."
 else
   # ── 4a. Serviço que reaplica o firewall a cada boot ────────────────
-  #     Instalado ANTES de aplicar as regras: o firewall-rules.sh checa se este
-  #     unit está habilitado para decidir se ainda precisa salvar um snapshot da
-  #     tabela. O unit roda depois do docker.service, então as chains DOCKER-*
-  #     já existem quando as regras do projeto entram — o oposto do snapshot,
-  #     que é restaurado com FLUSH e apaga essas chains, quebrando o
-  #     `docker network create` com "No chain/target/match by that name".
+  #     O unit roda depois do docker.service, então as chains DOCKER-* já existem
+  #     quando as regras do projeto entram. É o ÚNICO mecanismo de persistência:
+  #     não usamos mais snapshot da tabela (netfilter-persistent / rules.v4),
+  #     porque o `iptables-restore` do boot FLUSHA a tabela e apaga essas chains,
+  #     quebrando o `docker network create` com "No chain/target/match by that name".
   if [[ ! -f "$FIREWALL_UNIT_TEMPLATE" ]]; then
     warn "Template 'systemd/easyphone-firewall.service.example' não encontrado; unit não instalado."
   elif ! command -v systemctl &>/dev/null; then
@@ -753,20 +726,27 @@ else
     ok "easyphone-firewall.service instalado e habilitado."
     INSTALLED+=("easyphone-firewall.service")
     box_end
-
-    if systemctl is-enabled netfilter-persistent &>/dev/null; then
-      warn "netfilter-persistent restaura um snapshot da tabela inteira no boot."
-      warn "É esse snapshot que pode apagar as chains do Docker; o serviço acima"
-      warn "substitui a função reaplicando as regras depois que o Docker sobe."
-      if ask_yes "Desabilitar o netfilter-persistent?"; then
-        systemctl disable netfilter-persistent 2>&1 | tee -a "$LOGFILE"
-        ok "netfilter-persistent desabilitado."
-      else
-        echo "  → Mantido. Se o 'docker compose up' falhar após um reboot, comece por aqui."
-      fi
-    fi
   else
     echo "  → Serviço não instalado; as regras não serão reaplicadas no boot."
+  fi
+
+  # ── 4a'. Desabilita firewalls concorrentes ─────────────────────────
+  # netfilter-persistent restaura um snapshot da tabela inteira no boot; o
+  # iptables-restore flusha antes de aplicar e pode apagar as chains DOCKER-*.
+  # O projeto não usa snapshot: o easyphone-firewall.service é o único mecanismo.
+  if systemctl is-enabled netfilter-persistent &>/dev/null; then
+    warn "netfilter-persistent habilitado — pode apagar as chains do Docker no boot."
+    warn "Desabilitando (substituído pelo easyphone-firewall.service)."
+    systemctl disable netfilter-persistent 2>&1 | tee -a "$LOGFILE"
+    ok "netfilter-persistent desabilitado."
+  fi
+
+  # ufw gerencia iptables por conta própria e conflita com as regras do projeto
+  # (INPUT DROP + EASYPHONE_INPUT). Desabilita se estiver ativo.
+  if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "^Status: active"; then
+    warn "ufw está ativo e conflita com as regras iptables do projeto. Desabilitando."
+    ufw --force disable 2>&1 | tee -a "$LOGFILE"
+    ok "ufw desabilitado."
   fi
 
   # ── 4b. Aplica as regras agora ─────────────────────────────────────

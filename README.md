@@ -37,8 +37,8 @@ O script interativamente:
 | **0b/6** | Gera `traefik/conf/wss.yml` e `coturn/turnserver.conf` a partir dos templates `.example`, substituindo domínio e credenciais do `.env` |
 | **1/6** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
 | **2/6** | Autentica no ghcr.io (valida o token com um pull real) |
-| **3/6** | Instala iptables e iptables-persistent |
-| **4/6** | Instala o serviço `easyphone-firewall` (reaplica o firewall a cada boot, depois do Docker) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
+| **3/6** | Instala iptables |
+| **4/6** | Instala o serviço `easyphone-firewall` (único mecanismo de persistência: reaplica o firewall a cada boot, depois do Docker), desabilita firewalls concorrentes (`netfilter-persistent`, `ufw`) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
 | **5/6** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
 
 > **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
@@ -274,15 +274,14 @@ bash firewall-rules.sh           # recria a EASYPHONE_INPUT e o jump da INPUT
 docker compose up -d
 ```
 
-**Se o problema voltar após um reboot**, a causa é a persistência por snapshot: o `iptables-restore` do boot flusha a tabela antes de aplicar `/etc/iptables/rules.v4`, e um snapshot gravado sem as chains do Docker as apaga. Verifique e corrija:
+**Se o problema voltar após um reboot**, confira se algum mecanismo de snapshot ficou ativo (instalações antigas): o `iptables-restore` do boot flusha a tabela antes de aplicar `/etc/iptables/rules.v4` e apaga as chains do Docker. O projeto **não usa mais snapshot** — o `easyphone-firewall.service` é o único mecanismo de persistência e o `init.sh` (etapa 4/6) desabilita o `netfilter-persistent`:
 
 ```bash
-grep -c DOCKER /etc/iptables/rules.v4          # 0 = snapshot incompleto
 systemctl is-enabled easyphone-firewall         # deve estar "enabled"
-systemctl disable netfilter-persistent         # o unit acima substitui a função
+systemctl disable netfilter-persistent          # legado; o init.sh já desabilita
 ```
 
-O `easyphone-firewall.service` (instalado na etapa 4/6 do `init.sh`) roda depois do `docker.service` e reaplica o `firewall-rules.sh` a cada boot, dispensando o snapshot.
+O `easyphone-firewall.service` roda depois do `docker.service` e reaplica o `firewall-rules.sh` a cada boot.
 
 ### ⚠️ Nunca rode `iptables -F` neste host
 

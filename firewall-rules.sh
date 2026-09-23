@@ -233,46 +233,26 @@ if [[ -f "$WHITELIST_SCRIPT" ]]; then
 fi
 
 # ── 10. Persistência ─────────────────────────────────────────────────
-#     Duas estratégias, mutuamente exclusivas:
-#
-#     a) easyphone-firewall.service (preferida) — reaplica ESTE script a cada boot,
-#        depois do docker.service. As chains do Docker sempre existem antes das
-#        nossas regras entrarem, e nada é congelado em arquivo.
-#
-#     b) Snapshot da tabela inteira (netfilter-persistent / rules.v4) — fallback
-#        para quando o unit não está instalado. Funciona, mas é o mecanismo que
-#        causou o incidente: o `iptables-restore` do boot FLUSHA a tabela antes
-#        de aplicar, então um snapshot tirado sem as chains do Docker as apaga
-#        e quebra todo `docker network create`.
+#     O easyphone-firewall.service reaplica ESTE script a cada boot, depois do
+#     docker.service, para que as chains do Docker já existam quando as regras
+#     entrarem. É o ÚNICO mecanismo de persistência: não há mais snapshot da
+#     tabela (netfilter-persistent / rules.v4), porque o `iptables-restore` do
+#     boot FLUSHA a tabela e um snapshot tirado sem as chains do Docker as apaga,
+#     quebrando todo `docker network create`.
 echo
 
 if systemctl is-enabled easyphone-firewall.service &>/dev/null; then
   ok "easyphone-firewall.service habilitado — as regras são reaplicadas no boot."
-  info "Snapshot da tabela dispensado (não congela as chains do Docker)."
 
   if systemctl is-enabled netfilter-persistent &>/dev/null; then
-    warn "netfilter-persistent também está habilitado e restaura um snapshot no boot."
-    warn "É esse snapshot que pode apagar as chains do Docker. Para desativá-lo:"
+    warn "netfilter-persistent ainda está habilitado e restaura um snapshot no boot."
+    warn "É esse snapshot que pode apagar as chains do Docker. Desative:"
     warn "    systemctl disable netfilter-persistent"
   fi
 else
-  info "Salvando regras para restaurar no boot…"
-
-  if command -v netfilter-persistent &>/dev/null; then
-    netfilter-persistent save
-    ok "Regras salvas via netfilter-persistent."
-  elif [[ -d /etc/iptables ]]; then
-    iptables-save > /etc/iptables/rules.v4
-    ok "Regras salvas em /etc/iptables/rules.v4"
-  else
-    mkdir -p /etc/iptables
-    iptables-save > /etc/iptables/rules.v4
-    ok "Diretório /etc/iptables criado e regras salvas."
-  fi
-
-  warn "Persistência por snapshot: se ele for gravado sem as chains do Docker,"
-  warn "o boot vai apagá-las e o 'docker compose up' falhará."
-  warn "Prefira instalar o unit — 'sudo bash init.sh' (etapa 4/6) cuida disso."
+  warn "easyphone-firewall.service NÃO está habilitado."
+  warn "As regras atuais valem até o próximo reboot — depois dele o host sobe sem elas."
+  warn "Instale o unit com: sudo bash init.sh (etapa 4/6)."
 fi
 
 # ── 11. Aviso sobre Docker ──────────────────────────────────────────
