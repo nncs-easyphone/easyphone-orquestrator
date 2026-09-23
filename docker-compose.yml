@@ -398,7 +398,9 @@ services:
       ASTERISK_PATH_MOH: /var/lib/asterisk/moh
       ASTERISK_PATH_URA: /var/lib/asterisk/sounds/ura
       ASTERISK_PATH_SOUNDS_EASYPHONE: /var/lib/asterisk/sounds/easyphone
-      BACKUP_OUTPUT_PATH: /backups
+      BACKUP_OUTPUT_PATH: /app/backup
+      # Estado + logs de execução, em pasta física do host (bind mount ./states)
+      BACKUP_STATE_PATH: /app/states
       BACKUP_CRON_SCHEDULE: "0 2 * * *"
       BACKUP_ENABLED: "true"
       FIREBASE_URL: ${FIREBASE_URL}
@@ -409,7 +411,10 @@ services:
       - asterisk_monitor:/var/spool/asterisk/monitor:ro
       # Assets de áudio (moh, sounds/ura, sounds/easyphone)
       - asterisk_lib:/var/lib/asterisk:ro
-      - backup_data:/backups
+      - backup_data:/app/backup
+      # Estado/logs em pasta física do host. Em hosts com SELinux enforcing
+      # (ex.: Fedora), acrescente `:Z` ao final da linha.
+      - ./states:/app/states
 
 volumes:
   pgdata:

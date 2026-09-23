@@ -542,6 +542,16 @@ render_template "${ROOT_DIR}/coturn/turnserver.conf.example" \
                 "Config do Coturn"
 box_end
 
+# Pasta física do estado/logs do backup (bind mount em /app/states). O container
+# roda como uid/gid 1001 (runner) e um bind mount NÃO herda o dono da imagem —
+# sem o chown o serviço falha com EACCES ao gravar `.state`/activity.log.
+box_start "Estado do backup"
+BACKUP_STATES_DIR="${ROOT_DIR}/states"
+mkdir -p "$BACKUP_STATES_DIR"
+chown 1001:1001 "$BACKUP_STATES_DIR"
+ok "Pasta de estado/logs do backup: ${BACKUP_STATES_DIR} (dono 1001:1001)"
+box_end
+
 divider
 
 # ─────────────────────────────────────────────────────────────────────
