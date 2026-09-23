@@ -266,6 +266,23 @@ services:
       migrations:
         condition: service_completed_successfully
 
+  # Hostname, sistema operacional e redes do HOST para o card "Informações do
+  # Servidor" do Dashboard. A api roda na bridge e, de dentro dela, só enxerga o
+  # container (ID, Alpine, eth0 172.x); este serviço usa a rede e o UTS do host
+  # e grava um JSON no volume host_info, que a api lê em HOST_INFO_PATH.
+  host-info:
+    image: alpine:3.20
+    container_name: easyphone-host-info
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: host
+    uts: host
+    command: sh /collect.sh
+    volumes:
+      - ./host-info/collect.sh:/collect.sh:ro
+      - /etc/os-release:/host/os-release:ro
+      - host_info:/host-info
+
   api:
     image: ghcr.io/nncs-easyphone/easyphone-api:main
     build:
@@ -311,6 +328,7 @@ services:
       CORPORATE_ALLOW_API_KEY: ${CORPORATE_ALLOW_API_KEY}
       CORPORATE_API_KEY: ${CORPORATE_API_KEY}
       IVR_HEALTH_CHECK_API_KEY: ${IVR_HEALTH_CHECK_API_KEY}
+      HOST_INFO_PATH: /var/lib/easyphone/host-info/host-info.json
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easyphone-traefik-public"
@@ -329,6 +347,7 @@ services:
       - asterisk_lib:/var/lib/asterisk
       - asterisk_log:/var/log/asterisk
       - asterisk_monitor:/var/spool/asterisk/monitor
+      - host_info:/var/lib/easyphone/host-info:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -428,6 +447,8 @@ volumes:
     name: easyphone_traefik_data
   backup_data:
     name: easyphone_backup_data
+  host_info:
+    name: easyphone_host_info
 
 networks:
   default:

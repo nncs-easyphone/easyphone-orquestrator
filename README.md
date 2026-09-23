@@ -143,6 +143,7 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | `docker-compose.yml` | Definição dos serviços |
 | `traefik/conf/wss.yml.example` | Template do proxy WSS (router `pbx.${DOMAIN}`) — o `.yml` é gerado pelo `init.sh` |
 | `coturn/turnserver.conf.example` | Template do Coturn — o `.conf` é gerado pelo `init.sh` |
+| `host-info/collect.sh` | Coletor do serviço `host-info`: grava hostname, SO e redes do host (sem `docker0`/`br-*`/`veth*`) num JSON que a API lê para o card "Informações do Servidor" — de dentro do container ela só enxergaria o próprio container |
 
 ## Comandos úteis
 
