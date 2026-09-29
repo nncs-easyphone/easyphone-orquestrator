@@ -410,9 +410,11 @@ services:
       LICENSE_CLIENT_ID: ${LICENSE_CLIENT_ID}
       LICENSE_HARDWARE_ID: ${LICENSE_HARDWARE_ID}
     volumes:
-      - asterisk_monitor:/var/spool/asterisk/monitor:ro
+      # RW: o backup agendado só lê; o restore (manual) precisa escrever e
+      # excluir nestas árvores para espelhar a nuvem.
+      - asterisk_monitor:/var/spool/asterisk/monitor
       # Assets de áudio (moh, sounds/ura, sounds/easyphone)
-      - asterisk_lib:/var/lib/asterisk:ro
+      - asterisk_lib:/var/lib/asterisk
       - backup_data:/app/backup
       # Snapshot de segurança do restore, em pasta física do host.
       - ./safety:/app/safety:Z
