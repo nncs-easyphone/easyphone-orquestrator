@@ -399,6 +399,8 @@ services:
       ASTERISK_PATH_URA: /var/lib/asterisk/sounds/ura
       ASTERISK_PATH_SOUNDS_EASYPHONE: /var/lib/asterisk/sounds/easyphone
       BACKUP_OUTPUT_PATH: /app/backup
+      # Snapshot de segurança do restore (foto do estado atual antes do replace)
+      BACKUP_SAFETY_PATH: /app/safety
       # Estado + logs de execução, em pasta física do host (bind mount ./states)
       BACKUP_STATE_PATH: /app/states
       BACKUP_CRON_SCHEDULE: "0 2 * * *"
@@ -412,6 +414,8 @@ services:
       # Assets de áudio (moh, sounds/ura, sounds/easyphone)
       - asterisk_lib:/var/lib/asterisk:ro
       - backup_data:/app/backup
+      # Snapshot de segurança do restore, em pasta física do host.
+      - ./safety:/app/safety:Z
       # Estado/logs em pasta física do host. `:Z` rotula para SELinux (hosts
       # Fedora) e é ignorado em hosts sem SELinux. O dono (1001:1001) é
       # garantido automaticamente pelo entrypoint da imagem no start; o chown
