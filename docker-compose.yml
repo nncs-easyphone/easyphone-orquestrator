@@ -311,6 +311,9 @@ services:
       CORPORATE_ALLOW_API_KEY: ${CORPORATE_ALLOW_API_KEY}
       CORPORATE_API_KEY: ${CORPORATE_API_KEY}
       IVR_HEALTH_CHECK_API_KEY: ${IVR_HEALTH_CHECK_API_KEY}
+      # Automação interna (`/internal/*`): o serviço de backup apresenta esta
+      # chave para disparar a reconstrução dos arquivos do Asterisk após um restore.
+      ASTERISK_SYNC_API_KEY: ${ASTERISK_SYNC_API_KEY}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easyphone-traefik-public"
@@ -392,6 +395,8 @@ services:
         condition: service_healthy
       asterisk:
         condition: service_healthy
+      api:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       ASTERISK_MONITOR_PATH: /var/spool/asterisk/monitor
@@ -409,6 +414,9 @@ services:
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
       LICENSE_CLIENT_ID: ${LICENSE_CLIENT_ID}
       LICENSE_HARDWARE_ID: ${LICENSE_HARDWARE_ID}
+      # Sync do Asterisk após o restore (reconstrói config e áudio a partir do banco)
+      ASTERISK_API_URL: http://api:7002
+      ASTERISK_SYNC_API_KEY: ${ASTERISK_SYNC_API_KEY}
     volumes:
       # RW: o backup agendado só lê; o restore (manual) precisa escrever e
       # excluir nestas árvores para espelhar a nuvem.
