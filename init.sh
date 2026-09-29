@@ -544,7 +544,8 @@ box_end
 
 # Pasta física do estado/logs do backup (bind mount em /app/states). O container
 # roda como uid/gid 1001 (runner) e um bind mount NÃO herda o dono da imagem —
-# sem o chown o serviço falha com EACCES ao gravar `.state`/activity.log.
+# o entrypoint da imagem ajusta o dono no start de forma automática. Este chown
+# é só um reforço (e ajuda ao inspecionar a pasta antes do primeiro start).
 box_start "Estado do backup"
 BACKUP_STATES_DIR="${ROOT_DIR}/states"
 mkdir -p "$BACKUP_STATES_DIR"
