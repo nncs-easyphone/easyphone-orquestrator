@@ -88,6 +88,7 @@ A stack inclui:
 | **certs-dumper** | — | Extrai o certificado de `pbx.${DOMAIN}` do `acme.json` do Traefik para o Coturn usar no TURNS |
 | **Coturn** | STUN `3478/udp`, TURN `3478/tcp+udp`, TURNS `5349/tcp+udp`, relay `49152-65535/udp` | STUN/TURN para WebRTC (NAT traversal) |
 | **Asterisk** | SIP `5060/udp`, SIP TLS `5061/tcp`, RTP `10000-20000/udp` | PBX (AMI `5038`, ARI `8088` e WSS `8089` são internos — só acessíveis pela bridge do Docker; a 8088 escuta por padrão só na docker0, `172.17.0.1`; `ASTERISK_HTTP_BIND_ADDR` sobrepõe, ver `.env.example`) |
+| **Backup** | — | Backup para S3 (dump do Postgres, gravações e assets). Staging no volume `easyphone_backup_data:/app/backup`; estado e logs de execução em `./states` (bind mount em `/app/states`) |
 
 ## 4. Acesse
 
@@ -429,5 +430,7 @@ Verifique também se a faixa de relay `49152-65535/udp` e a faixa de RTP `10000-
 
 - [ ] **Migrar volumes nomeados para bind mount em `/opt/easyphone-data/`**
   Substituir volumes nomeados do Docker (`pgdata`, `traefik_data`, `coturn_certs`,
-  `asterisk_config`, `asterisk_lib`, `asterisk_log`, `asterisk_monitor`) por bind
-  mounts em `/opt/easyphone-data/` para facilitar backups com `rsync`/`tar`.
+  `asterisk_config`, `asterisk_lib`, `asterisk_log`, `asterisk_monitor`,
+  `backup_data`) por bind mounts em `/opt/easyphone-data/` para facilitar backups
+  com `rsync`/`tar`. O estado/logs do backup já usam bind mount (`./states` em
+  `/app/states`); o volume `backup_data` guarda só o staging do dump.

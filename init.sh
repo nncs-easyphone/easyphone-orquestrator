@@ -404,6 +404,34 @@ if $CONFIG_ENABLED; then
     ok "API Key do Health Check das URAs mantida como está."
   fi
 
+  # ── Automação interna (sincronizar tudo) ──
+  # A mesma KEY é usada pela API (valida o header `x-api-key` em /internal/*) e
+  # pelo serviço de backup (apresenta o header) para disparar
+  # POST /internal/asterisk/sync-dialplan depois de um restore — o mesmo
+  # "Sincronizar tudo" do painel, por um caminho máquina→máquina. Sem ela, o
+  # endpoint responde 401 e o restore apenas avisa que não sincronizou.
+  if ask_yes "Configurar a API Key da automação interna (sincronizar tudo)?"; then
+    box_start "Automação interna (sincronizar tudo)"
+    printf -v RANDOM_AST_SYNC '%s' "$(gen_hex_secret 24)"
+    ask_secret "API Key da automação interna (usada pela API e pelo backup em x-api-key)" \
+      "$RANDOM_AST_SYNC" ASTERISK_SYNC_API_KEY
+    while ! is_safe_secret "$ASTERISK_SYNC_API_KEY"; do
+      warn "Use apenas letras, números, ponto, hífen e underline."
+      ask_secret "API Key da automação interna (usada pela API e pelo backup em x-api-key)" \
+        "$RANDOM_AST_SYNC" ASTERISK_SYNC_API_KEY
+    done
+    update_env "ASTERISK_SYNC_API_KEY" "$ASTERISK_SYNC_API_KEY" "$ENV_FILE"
+    box_end
+  elif $FIRST_RUN; then
+    box_start "Automação interna (sincronizar tudo)"
+    printf -v ASTERISK_SYNC_API_KEY '%s' "$(gen_hex_secret 24)"
+    update_env "ASTERISK_SYNC_API_KEY" "$ASTERISK_SYNC_API_KEY" "$ENV_FILE"
+    ok "API Key da automação interna gerada automaticamente."
+    box_end
+  else
+    ok "API Key da automação interna mantida como está."
+  fi
+
   # ── Coturn ──
   if ask_yes "Configurar variáveis do Coturn (STUN/TURN)?"; then
     box_start "Configuração Coturn"
@@ -540,6 +568,17 @@ render_template "${ROOT_DIR}/traefik/conf/wss.yml.example" \
 render_template "${ROOT_DIR}/coturn/turnserver.conf.example" \
                 "${ROOT_DIR}/coturn/turnserver.conf" \
                 "Config do Coturn"
+box_end
+
+# Pasta física do estado/logs do backup (bind mount em /app/states). O container
+# roda como uid/gid 1001 (runner) e um bind mount NÃO herda o dono da imagem —
+# o entrypoint da imagem ajusta o dono no start de forma automática. Este chown
+# é só um reforço (e ajuda ao inspecionar a pasta antes do primeiro start).
+box_start "Estado do backup"
+BACKUP_STATES_DIR="${ROOT_DIR}/states"
+mkdir -p "$BACKUP_STATES_DIR"
+chown 1001:1001 "$BACKUP_STATES_DIR"
+ok "Pasta de estado/logs do backup: ${BACKUP_STATES_DIR} (dono 1001:1001)"
 box_end
 
 divider
