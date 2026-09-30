@@ -414,7 +414,7 @@ services:
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
       LICENSE_CLIENT_ID: ${LICENSE_CLIENT_ID}
       LICENSE_HARDWARE_ID: ${LICENSE_HARDWARE_ID}
-      # Sync do Asterisk após o restore (reconstrói config e áudio a partir do banco)
+      # Sincronizar tudo do Asterisk após o restore (reconstrói a config do banco)
       ASTERISK_API_URL: http://api:7002
       ASTERISK_SYNC_API_KEY: ${ASTERISK_SYNC_API_KEY}
     volumes:

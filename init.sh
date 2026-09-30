@@ -404,13 +404,14 @@ if $CONFIG_ENABLED; then
     ok "API Key do Health Check das URAs mantida como está."
   fi
 
-  # ── Automação interna (sync do Asterisk) ──
+  # ── Automação interna (sincronizar tudo) ──
   # A mesma KEY é usada pela API (valida o header `x-api-key` em /internal/*) e
   # pelo serviço de backup (apresenta o header) para disparar
-  # POST /internal/asterisk/reconcile depois de um restore. Sem ela, o endpoint
-  # responde 401 e o restore apenas avisa que não sincronizou.
-  if ask_yes "Configurar a API Key da automação interna (sync do Asterisk)?"; then
-    box_start "Automação interna (sync do Asterisk)"
+  # POST /internal/asterisk/sync-dialplan depois de um restore — o mesmo
+  # "Sincronizar tudo" do painel, por um caminho máquina→máquina. Sem ela, o
+  # endpoint responde 401 e o restore apenas avisa que não sincronizou.
+  if ask_yes "Configurar a API Key da automação interna (sincronizar tudo)?"; then
+    box_start "Automação interna (sincronizar tudo)"
     printf -v RANDOM_AST_SYNC '%s' "$(gen_hex_secret 24)"
     ask_secret "API Key da automação interna (usada pela API e pelo backup em x-api-key)" \
       "$RANDOM_AST_SYNC" ASTERISK_SYNC_API_KEY
@@ -422,7 +423,7 @@ if $CONFIG_ENABLED; then
     update_env "ASTERISK_SYNC_API_KEY" "$ASTERISK_SYNC_API_KEY" "$ENV_FILE"
     box_end
   elif $FIRST_RUN; then
-    box_start "Automação interna (sync do Asterisk)"
+    box_start "Automação interna (sincronizar tudo)"
     printf -v ASTERISK_SYNC_API_KEY '%s' "$(gen_hex_secret 24)"
     update_env "ASTERISK_SYNC_API_KEY" "$ASTERISK_SYNC_API_KEY" "$ENV_FILE"
     ok "API Key da automação interna gerada automaticamente."
