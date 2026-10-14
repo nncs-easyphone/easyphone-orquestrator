@@ -387,6 +387,9 @@ services:
       VITE_MAX_FILES_UPLOAD_MOH: "${UPLOAD_MOH_MAX_FILES}"
       VITE_MAX_FILE_SIZE_UPLOAD_MOH: "${UPLOAD_MOH_MAX_FILE_SIZE}"
       VITE_MAX_FILE_SIZE_UPLOAD_IVR_AUDIO: "${UPLOAD_IVR_MAX_FILE_SIZE}"
+      # Chat novo (Fase 10): desligado sem a flag E a URL pública do chat.
+      VITE_CHAT_ENABLED: "${CHAT_WEB_ENABLED:-false}"
+      VITE_CHAT_URL: ${CHAT_WEB_URL:-}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=easyphone-traefik-public"
