@@ -327,6 +327,9 @@ services:
       LICENSE_HARDWARE_ID: ${LICENSE_HARDWARE_ID}
       CORPORATE_ALLOW_API_KEY: ${CORPORATE_ALLOW_API_KEY}
       CORPORATE_API_KEY: ${CORPORATE_API_KEY}
+      # Chat na nuvem (Fase 09): ativo apenas com as duas variáveis.
+      CHAT_API_URL: ${CHAT_API_URL:-}
+      CHAT_API_KEY: ${CHAT_API_KEY:-}
       IVR_HEALTH_CHECK_API_KEY: ${IVR_HEALTH_CHECK_API_KEY}
       # Automação interna (`/internal/*`): o serviço de backup apresenta esta
       # chave para disparar a reconstrução dos arquivos do Asterisk após um restore.
