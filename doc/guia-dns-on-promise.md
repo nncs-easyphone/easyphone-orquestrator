@@ -27,12 +27,12 @@ A solução utiliza o **Traefik + Lego + HTTPREQ**, mantendo o gerenciamento do 
 ┌──────────────────────────────┐
 │        Firebase              │
 │                              │
-│  /acme/dns/present            │
-│  /acme/dns/cleanup            │
+│  /dns-challenge/present      │
+│  /dns-challenge/cleanup      │
 │                              │
-│  • autenticação               │
-│  • autorização                │
-│  • validação do domínio       │
+│  • autenticação              │
+│  • autorização               │
+│  • validação do domínio      │
 └──────────────┬───────────────┘
                │
                │ AWS SDK
@@ -101,8 +101,8 @@ O servidor on-premise não terá acesso direto às credenciais AWS.
 Em vez disso, serão disponibilizados dois endpoints no backend EasyPhone:
 
 ```http
-POST /acme/dns/present
-POST /acme/dns/cleanup
+POST /dns-challenge/present?apiKey=<chave>
+POST /dns-challenge/cleanup?apiKey=<chave>
 ```
 
 Esses endpoints serão utilizados pelo provider `httpreq` do Lego.
@@ -116,7 +116,7 @@ Fluxo:
 ```text
 Traefik
    │
-   │ POST /acme/dns/present
+   │ POST /dns-challenge/present?apiKey=<chave>
    ▼
 Firebase
    │
@@ -136,7 +136,7 @@ Após a validação do certificado, o Lego solicita a remoção do registro temp
 ```text
 Traefik
    │
-   │ POST /acme/dns/cleanup
+   │ POST /dns-challenge/cleanup?apiKey=<chave>
    ▼
 Firebase
    │
@@ -168,7 +168,12 @@ certificatesResolvers:
         provider: httpreq
 ```
 
-O `httpreq` fará a comunicação com os endpoints disponibilizados pelo EasyPhone.
+O `httpreq` fará a comunicação com os endpoints disponibilizados pelo EasyPhone. No compose, a chave é definida uma única vez:
+
+```yaml
+environment:
+  - "HTTPREQ_ENDPOINT=http://api:7002/dns-challenge?apiKey=${DNS_CHALLENGE_API_KEY}"
+```
 
 Conceitualmente:
 
@@ -217,7 +222,7 @@ Firebase
 Route 53
 ```
 
-A credencial utilizada pelo Traefik deve permitir somente as operações necessárias para o ACME.
+A autenticação é feita pela API key na própria URL (`?apiKey=...`). O `init.sh`/`run.sh` gera `DNS_CHALLENGE_API_KEY` automaticamente e o compose a injeta tanto no `api` quanto no `HTTPREQ_ENDPOINT` do Traefik — não é necessário configurar a chave em dois lugares.
 
 O servidor on-premise **não deverá possuir credenciais AWS**.
 
@@ -428,10 +433,10 @@ Domínio:
 xxx.empresa.easyphone.com.br
 
 Endpoint:
-https://<api-easyphone>/acme/dns
+https://<api-easyphone>/dns-challenge?apiKey=<chave>
 
 Credencial:
-<credencial-do-cliente>
+<chave gerada automaticamente no compose>
 ```
 
 E **não precisa conhecer ou armazenar nenhuma credencial AWS**.

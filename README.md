@@ -44,6 +44,8 @@ O script interativamente:
 > **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
 
 > **DNS do Traefik:** na etapa 0/6 o `init.sh` pergunta os dois servidores DNS usados pelo container do Traefik (`DNS_SERVER_1`/`DNS_SERVER_2`, padrão `8.8.8.8`/`1.1.1.1`). Isso afeta apenas a resolução externa do Traefik — a resolução de nomes de serviço do Docker (embedded DNS) não muda.
+>
+> **DNS challenge:** o `init.sh`/`run.sh` gera `DNS_CHALLENGE_API_KEY` automaticamente no `.env`. O compose injeta a mesma chave na API e na URL `HTTPREQ_ENDPOINT` do Traefik; não há configuração em dois lugares.
 
 > **Porta de gestão (SSH):** na etapa 0/6 o `init.sh` pergunta a porta de gestão (padrão `22`) e grava em `SSH_PORT` no `.env`. O firewall libera **apenas** essa porta — inclusive no boot (via `easyphone-firewall.service`). O script **não** altera o `sshd`: se você escolher uma porta diferente de 22, configure antes o `/etc/ssh/sshd_config.d/` (`Port <SSH_PORT>`, valide com `sshd -t && systemctl restart ssh`) ou você perderá o acesso. O `diagnose-firewall.sh` compara a porta liberada no firewall com a que o `sshd` escuta e avisa em caso de divergência.
 
@@ -317,7 +319,7 @@ sudo ss -tulpn | grep -E '5060|5038|8088|3478|5349'
 
 ### Certificado SSL não gerado
 
-O Traefik usa desafio TLS (porta 443). Certifique-se de que:
+O Traefik usa desafio DNS-01 via provider `httpreq` (a chave é gerada automaticamente e injetada na URL). Certifique-se de que:
 1. O DNS de `app.exemplo.com`, `api.exemplo.com` e `pbx.exemplo.com` apontem para o IP da VM
 2. A porta 443 esteja liberada no firewall da VM e no provedor de nuvem
 3. O email `LETSENCRYPT_EMAIL` no `.env` esteja correto

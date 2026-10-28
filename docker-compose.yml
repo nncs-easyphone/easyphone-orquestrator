@@ -48,7 +48,7 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=8.8.8.8:53,1.1.1.1:53"
     environment:
-      - HTTPREQ_ENDPOINT=http://api:7002/dns-challenge
+      - "HTTPREQ_ENDPOINT=http://api:7002/dns-challenge?apiKey=${DNS_CHALLENGE_API_KEY:?defina DNS_CHALLENGE_API_KEY}"
     depends_on:
       api:
         condition: service_healthy
@@ -290,6 +290,7 @@ services:
       dockerfile: Dockerfile
     container_name: easyphone-api
     restart: unless-stopped
+    stop_grace_period: 15s
     logging: *default-logging
     ports: []
     networks:
@@ -331,6 +332,7 @@ services:
       CHAT_API_URL: ${CHAT_API_URL:-}
       CHAT_API_KEY: ${CHAT_API_KEY:-}
       IVR_HEALTH_CHECK_API_KEY: ${IVR_HEALTH_CHECK_API_KEY}
+      DNS_CHALLENGE_API_KEY: ${DNS_CHALLENGE_API_KEY:?defina DNS_CHALLENGE_API_KEY}
       # Automação interna (`/internal/*`): o serviço de backup apresenta esta
       # chave para disparar a reconstrução dos arquivos do Asterisk após um restore.
       ASTERISK_SYNC_API_KEY: ${ASTERISK_SYNC_API_KEY}

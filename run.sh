@@ -90,6 +90,24 @@ load_env_safe() {
 }
 load_env_safe
 
+# A chave do DNS challenge precisa existir antes do compose: ela vai no
+# environment da API e na URL do HTTPREQ_ENDPOINT do Traefik.
+if [[ -z "${DNS_CHALLENGE_API_KEY:-}" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    DNS_CHALLENGE_API_KEY="$(openssl rand -hex 32)"
+  else
+    DNS_CHALLENGE_API_KEY="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  fi
+
+  if grep -q '^DNS_CHALLENGE_API_KEY=' "$ENV_FILE"; then
+    sed -i "s|^DNS_CHALLENGE_API_KEY=.*|DNS_CHALLENGE_API_KEY=${DNS_CHALLENGE_API_KEY}|" "$ENV_FILE"
+  else
+    printf '\nDNS_CHALLENGE_API_KEY=%s\n' "$DNS_CHALLENGE_API_KEY" >> "$ENV_FILE"
+  fi
+
+  ok "API Key do DNS challenge gerada automaticamente."
+fi
+
 USE_BUILD="${USE_BUILD:-false}"
 
 cd "$REPO_DIR"

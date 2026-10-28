@@ -432,6 +432,16 @@ if $CONFIG_ENABLED; then
     ok "API Key da automação interna mantida como está."
   fi
 
+  # ── DNS challenge (Traefik) ──
+  # A mesma chave vai para a API (valida) e para a URL do Traefik (apresenta).
+  if [[ -z "${DNS_CHALLENGE_API_KEY:-}" ]]; then
+    printf -v DNS_CHALLENGE_API_KEY '%s' "$(gen_hex_secret 32)"
+    update_env "DNS_CHALLENGE_API_KEY" "$DNS_CHALLENGE_API_KEY" "$ENV_FILE"
+    ok "API Key do DNS challenge gerada automaticamente."
+  else
+    ok "API Key do DNS challenge mantida."
+  fi
+
   # ── Coturn ──
   if ask_yes "Configurar variáveis do Coturn (STUN/TURN)?"; then
     box_start "Configuração Coturn"
