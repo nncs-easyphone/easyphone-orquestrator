@@ -59,7 +59,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "7001:5432"
+      - "127.0.0.1:7001:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -82,7 +82,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "7003:6432"
+      - "127.0.0.1:7003:6432"
     environment:
       AUTH_TYPE: scram-sha-256
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -198,6 +198,7 @@ services:
       # onde api/seed chegam). Só preencha se o Docker usar outro `bip` ou se
       # a API alcançar o ARI de fora do host (0.0.0.0).
       ASTERISK_HTTP_BIND_ADDR: ${ASTERISK_HTTP_BIND_ADDR:-}
+      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou run.sh para gerar}
     healthcheck:
       test: ["CMD-SHELL", "asterisk -rx \"core waitfullybooted\" | grep -q \"fully booted\" || exit 1"]
       interval: 10s
@@ -238,7 +239,7 @@ services:
       ASTERISK_ARI_PORT: "8088"
       ASTERISK_AMI_PORT: "5038"
       ASTERISK_AMI_USER: easyphone
-      ASTERISK_AMI_PASSWORD: default-secret
+      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou run.sh para gerar}
       ASTERISK_ARI_APP: easyphone
       PRISMA_LOGS_OFF: "true"
       DATA_SECRET_CRYPTOGRAPHY_KEY: ${DATA_SECRET_CRYPTOGRAPHY_KEY}
@@ -315,7 +316,7 @@ services:
       ASTERISK_ARI_PORT: "8088"
       ASTERISK_AMI_PORT: "5038"
       ASTERISK_AMI_USER: easyphone
-      ASTERISK_AMI_PASSWORD: default-secret
+      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou run.sh para gerar}
       ASTERISK_ARI_APP: easyphone
       PRISMA_LOGS_OFF: "true"
       DATA_SECRET_CRYPTOGRAPHY_KEY: ${DATA_SECRET_CRYPTOGRAPHY_KEY}

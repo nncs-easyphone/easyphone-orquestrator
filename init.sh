@@ -536,6 +536,16 @@ if [[ -f "$ENV_FILE" ]]; then
   load_env_safe
 fi
 
+# Credencial AMI/ARI compartilhada: precisa existir antes do compose, inclusive
+# em instalações que só estão reaplicando o init.
+if [[ -z "${ASTERISK_AMI_PASSWORD:-}" || "${ASTERISK_AMI_PASSWORD}" == "default-secret" ]]; then
+  printf -v ASTERISK_AMI_PASSWORD '%s' "$(gen_hex_secret 24)"
+  update_env "ASTERISK_AMI_PASSWORD" "$ASTERISK_AMI_PASSWORD" "$ENV_FILE"
+  ok "Credencial AMI/ARI gerada automaticamente."
+else
+  ok "Credencial AMI/ARI mantida."
+fi
+
 # ─────────────────────────────────────────────────────────────────────
 #  0b. ARQUIVOS GERADOS A PARTIR DO .ENV
 # ─────────────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@
 # ⚠️ ORIGEM LISTADA AQUI = ACESSO TOTAL AO HOST. A chain EASYPHONE_WHITELIST faz
 # ACCEPT para estes CIDRs, então eles NÃO passam pelo filtro de portas da
 # EASYPHONE_INPUT: alcançam qualquer porta, inclusive AMI (5038), ARI (8088),
-# WSS (8089) e Postgres (7001). Esta é uma lista de hosts CONFIÁVEIS — troncos,
+# WSS (8089). Postgres/PgBouncer ficam em loopback. Esta é uma lista de hosts CONFIÁVEIS — troncos,
 # operadoras e máquinas de administração — não um filtro de borda.
 #
 # ⚠️ ANTES DE ATIVAR, confira que a lista cobre:

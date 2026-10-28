@@ -134,6 +134,11 @@ run iptables -n -L DOCKER-USER
 
 section "7. Portas em escuta no host"
 run ss -tulpn
+if ss -tlnp 2>/dev/null | grep -Eq '(0\.0\.0\.0|\[::\]):(7001|7003)\b'; then
+  warn "Postgres/PgBouncer aparecem fora de loopback; confira o compose e o firewall."
+else
+  ok "Postgres/PgBouncer não aparecem em 0.0.0.0/[::] (loopback)."
+fi
 
 # ── 8. Conntrack ─────────────────────────────────────────────────────
 section "8. Conntrack — hipótese principal para 'cai tudo e só volta com restart do Docker'"

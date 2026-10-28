@@ -2,13 +2,23 @@
 
 Provisionamento e inicialização da stack EasyPhone (Postgres, PgBouncer, API, Web, Asterisk, Coturn) em uma VM vazia.
 
+## Arquitetura on-premise
+
+Esta stack é **on-premise, single-tenant e single-node**:
+
+- Todos os serviços deste repositório rodam na mesma VM, na infraestrutura do cliente.
+- Não há alta disponibilidade, failover automático nem múltiplas réplicas.
+- Manutenções e restarts podem interromper chamadas, ramais e a interface durante a janela de execução.
+- O RPO assumido é o **backup diário**; não há PITR nem replicação contínua.
+- O chat em nuvem (`chat-backend`) é um serviço separado, **multi-tenant e multi-grupo**, e não roda nesta stack.
+
 ## Requisitos
 
 - **SO:** Ubuntu 22.04+ ou Debian 12+
 - **Arquitetura:** x86_64
 - **Mínimo:** 2 vCPU, 4 GB RAM
 - **Acesso root** via `sudo`
-- **Domínio público** apontado para a VM. Três subdomínios precisam resolver para o IP da VM **antes** do primeiro `docker compose up` (o Traefik emite os certificados via desafio TLS-ALPN na porta 443):
+- **Domínio público** apontado para a VM. Três subdomínios precisam resolver para o IP da VM **antes** do primeiro `docker compose up` (o Traefik emite os certificados via desafio DNS-01/HTTPREQ):
 
 | Subdomínio | Serviço |
 |---|---|
@@ -44,6 +54,8 @@ O script interativamente:
 > **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
 
 > **DNS do Traefik:** na etapa 0/6 o `init.sh` pergunta os dois servidores DNS usados pelo container do Traefik (`DNS_SERVER_1`/`DNS_SERVER_2`, padrão `8.8.8.8`/`1.1.1.1`). Isso afeta apenas a resolução externa do Traefik — a resolução de nomes de serviço do Docker (embedded DNS) não muda.
+>
+> **AMI/ARI:** o `init.sh`/`run.sh` gera `ASTERISK_AMI_PASSWORD` automaticamente no `.env`; a mesma credencial é renderizada em `manager.conf`/`ari.conf` e usada por seed/API.
 >
 > **DNS challenge:** o `init.sh`/`run.sh` gera `DNS_CHALLENGE_API_KEY` automaticamente no `.env`. O compose injeta a mesma chave na API e na URL `HTTPREQ_ENDPOINT` do Traefik; não há configuração em dois lugares.
 
@@ -196,7 +208,7 @@ INPUT (policy DROP)
   5  -j EASYPHONE_INPUT       ← filtro por porta (só para quem não é do ALLOWED)
 ```
 
-**⚠️ Origem no `ALLOWED` = acesso total.** A chain faz `ACCEPT`, então esses IPs saem da INPUT ali mesmo e **não** passam pelo filtro de portas: alcançam qualquer porta do host, inclusive AMI (5038), ARI (8088), WSS (8089) e Postgres (7001). Para eles, a proteção do AMI passa a ser apenas a ACL do `manager.conf`.
+**⚠️ Origem no `ALLOWED` = acesso total.** A chain faz `ACCEPT`, então esses IPs saem da INPUT ali mesmo e **não** passam pelo filtro de portas: alcançam qualquer porta do host, inclusive AMI (5038), ARI (8088) e WSS (8089). Postgres/PgBouncer ficam em loopback. Para eles, a proteção do AMI passa a ser apenas a ACL do `manager.conf`.
 
 Isso é deliberado. A `EASYPHONE_INPUT` libera um conjunto fixo de portas (a porta de gestão `SSH_PORT` — 22 por padrão —, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e **não** cobre SIP em TCP/5060 nem portas 50xx alternativas — com `RETURN`, um tronco já presente na whitelist continuava sendo descartado por falar numa porta fora dessa lista, uma falha silenciosa e difícil de diagnosticar. Trate o `whitelist.conf` como lista de **hosts confiáveis**, não como filtro de borda.
 

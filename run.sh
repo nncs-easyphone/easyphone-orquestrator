@@ -108,6 +108,22 @@ if [[ -z "${DNS_CHALLENGE_API_KEY:-}" ]]; then
   ok "API Key do DNS challenge gerada automaticamente."
 fi
 
+if [[ -z "${ASTERISK_AMI_PASSWORD:-}" || "${ASTERISK_AMI_PASSWORD}" == "default-secret" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    ASTERISK_AMI_PASSWORD="$(openssl rand -hex 24)"
+  else
+    ASTERISK_AMI_PASSWORD="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  fi
+
+  if grep -q '^ASTERISK_AMI_PASSWORD=' "$ENV_FILE"; then
+    sed -i "s|^ASTERISK_AMI_PASSWORD=.*|ASTERISK_AMI_PASSWORD=${ASTERISK_AMI_PASSWORD}|" "$ENV_FILE"
+  else
+    printf '\nASTERISK_AMI_PASSWORD=%s\n' "$ASTERISK_AMI_PASSWORD" >> "$ENV_FILE"
+  fi
+
+  ok "Credencial AMI/ARI gerada automaticamente."
+fi
+
 USE_BUILD="${USE_BUILD:-false}"
 
 cd "$REPO_DIR"
@@ -188,8 +204,8 @@ fi
 ok "Stack EasyPhone iniciada."
 echo
 echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com} (web)  /  https://api.${DOMAIN:-exemplo.com} (api)  /  https://pbx.${DOMAIN:-exemplo.com} (wss)"
-echo -e "  ${GREEN}→${NC} Postgres:   localhost:${PG_PORT_HOST:-7001}  (interno)"
-echo -e "  ${GREEN}→${NC} PgBouncer:  localhost:${PGBOUNCER_PORT_HOST:-7003}  (pool, interno)"
+echo -e "  ${GREEN}→${NC} Postgres:   127.0.0.1:${PG_PORT_HOST:-7001}  (loopback, não exposto)"
+echo -e "  ${GREEN}→${NC} PgBouncer:  127.0.0.1:${PGBOUNCER_PORT_HOST:-7003}  (loopback, não exposto)"
 echo -e "  ${GREEN}→${NC} Coturn:     STUN 3478/udp  |  TURN 3478/tcp+udp  |  TURNS 5349/tcp+udp  |  Relay 49152-65535/udp"
 echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  SIP TLS 5061/tcp  |  RTP 10000-20000/udp (AMI/ARI internos)"
 echo

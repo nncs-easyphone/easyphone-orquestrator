@@ -92,7 +92,7 @@ echo
 # Proteção em camadas:
 #   1. manager.conf — ACL deny + permit somente IPs privados (10/8, 172.16/12, 192.168/16)
 #   2. iptables     — porta 5038 só aceita tráfego vindo de interfaces br+ (Docker)
-# PostgreSQL (7001) é interno — o Asterisk (host networking) o alcança em 127.0.0.1.
+# PostgreSQL (7001) e PgBouncer (7003) são publicados apenas em 127.0.0.1; o Asterisk (host networking) alcança o Postgres em 127.0.0.1.
 #
 # Origens do whitelist.conf não passam por esta lista: a EASYPHONE_WHITELIST faz
 # ACCEPT antes, dando acesso total a elas (ver whitelist-rules.sh).

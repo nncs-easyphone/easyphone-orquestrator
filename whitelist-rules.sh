@@ -16,7 +16,7 @@
 # ORIGEM PERMITIDA = ACESSO TOTAL. A chain devolve ACCEPT para os CIDRs do
 # ALLOWED: o pacote sai da INPUT ali mesmo e NÃO passa pelo filtro de portas da
 # EASYPHONE_INPUT. Um IP da lista alcança QUALQUER porta do host, incluindo AMI
-# (5038), ARI (8088), WSS (8089) e Postgres (7001).
+# (5038), ARI (8088) e WSS (8089). Postgres/PgBouncer ficam em loopback e não são alcançáveis por esta lista.
 #
 # Foi uma decisão deliberada: a EASYPHONE_INPUT libera um conjunto fixo de portas
 # (a porta de gestão SSH_PORT — 22 por padrão —, 80, 443, 5061, 3478, 5349,
@@ -200,7 +200,7 @@ done
 iptables -A "$WHITELIST_CHAIN" -m limit --limit 5/min -j LOG --log-prefix "$LOG_PREFIX"
 iptables -A "$WHITELIST_CHAIN" -j DROP
 ok "Chain $WHITELIST_CHAIN montada (${#ALLOWED[@]} origens + bridges do Docker)."
-warn "As ${#ALLOWED[@]} origens do ALLOWED têm acesso a TODAS as portas do host (inclusive AMI/Postgres)."
+warn "As ${#ALLOWED[@]} origens do ALLOWED têm acesso a TODAS as portas do host (inclusive AMI/ARI/WSS)."
 
 # ── Posiciona o jump na INPUT ────────────────────────────────────────
 #     Precisa vir ANTES da EASYPHONE_INPUT: aquela chain aceita por porta sem olhar
