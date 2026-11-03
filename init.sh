@@ -886,6 +886,14 @@ else
     echo -e "    ${GREEN}✓${NC} $item"
   done
 fi
+case "${POSTGRES_BIND_ADDR:-127.0.0.1}" in
+  ""|127.0.0.1|localhost|::1) ;;
+  *)
+    echo
+    warn "Postgres configurado para publicar externamente em ${POSTGRES_BIND_ADDR}:7001 (POSTGRES_BIND_ADDR)."
+    warn "Isso deve ser usado apenas no ambiente de testes. Com whitelist.conf ativo, reaplique o firewall uma vez."
+    ;;
+esac
 echo
 echo -e "  ${BOLD}Arquivo de log:${NC} $LOGFILE"
 echo

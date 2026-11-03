@@ -16,7 +16,10 @@
 # ORIGEM PERMITIDA = ACESSO TOTAL. A chain devolve ACCEPT para os CIDRs do
 # ALLOWED: o pacote sai da INPUT ali mesmo e NÃO passa pelo filtro de portas da
 # EASYPHONE_INPUT. Um IP da lista alcança QUALQUER porta do host, incluindo AMI
-# (5038), ARI (8088) e WSS (8089). Postgres/PgBouncer ficam em loopback e não são alcançáveis por esta lista.
+# (5038), ARI (8088) e WSS (8089). O PgBouncer fica em loopback. O Postgres
+# fica em loopback por padrão, mas quando publicado externamente
+# (POSTGRES_BIND_ADDR=0.0.0.0) o tráfego dele passa pela DOCKER-USER, onde este
+# script aplica a MESMA lista de origens (chain EASYPHONE_DB).
 #
 # Foi uma decisão deliberada: a EASYPHONE_INPUT libera um conjunto fixo de portas
 # (a porta de gestão SSH_PORT — 22 por padrão —, 80, 443, 5061, 3478, 5349,
@@ -39,6 +42,9 @@
 #   ✗ As portas 80/443 do Traefik. Porta publicada por container não passa pela
 #     INPUT (vai por nat/PREROUTING → FORWARD → chains DOCKER-*), então app./api.
 #     e o desafio TLS do Let's Encrypt seguem abertos ao mundo — de propósito.
+#   ✓ O Postgres publicado externamente (porta 7001) também é filtrado por
+#     origem, mas na DOCKER-USER (chain EASYPHONE_DB), pois o tráfego é DNATed
+#     para o container antes de chegar às chains locais.
 #
 # O QUE ISTO NÃO EXPLICA: erros do Asterisk ao CRIAR requisições de SAÍDA, como
 # "Unable to create outbound OPTIONS request" / "Unable to create request to
@@ -67,8 +73,67 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 WHITELIST_CHAIN="EASYPHONE_WHITELIST"
 PORTS_CHAIN="EASYPHONE_INPUT"
+DB_CHAIN="EASYPHONE_DB"
+DB_PUBLISHED_PORT="7001"
 LOG_PREFIX="EASYPHONE-WL-DROP: "
 CONF_FILE="$(dirname "$(readlink -f "$0")")/whitelist.conf"
+
+# remove_db_chain: desmonta a filtragem do Postgres publicada pelo Docker.
+# A porta é publicada por `ports:` (POSTGRES_BIND_ADDR), então o tráfego passa
+# por FORWARD/DOCKER-USER e NÃO pela EASYPHONE_INPUT. Sem o DOCKER-USER, a
+# whitelist não teria efeito sobre o banco. Chamada no --remove e quando não há
+# whitelist.conf (nesse caso o Postgres publicado fica aberto, como as demais
+# portas públicas do projeto).
+remove_db_chain() {
+  iptables -n -L DOCKER-USER &>/dev/null || return 0
+
+  while iptables -C DOCKER-USER -j "$DB_CHAIN" &>/dev/null; do
+    iptables -D DOCKER-USER -j "$DB_CHAIN"
+  done
+
+  if iptables -n -L "$DB_CHAIN" &>/dev/null; then
+    iptables -F "$DB_CHAIN"
+    iptables -X "$DB_CHAIN"
+  fi
+}
+
+# apply_db_chain: aplica a MESMA lista de origens ao Postgres publicado pelo
+# Docker (porta 7001). A regra casa o port ORIGINAL antes do DNAT
+# (--ctorigdstport), porque no DOCKER-USER o pacote já está endereçado ao
+# container (porta 5432). Instalada mesmo quando POSTGRES_BIND_ADDR=127.0.0.1:
+# sem tráfego publicado a regra não casa, e alternar a env para 0.0.0.0 passa a
+# valer com um simples `docker compose up`, sem reaplicar o firewall.
+apply_db_chain() {
+  if ! iptables -n -L DOCKER-USER &>/dev/null; then
+    warn "Chain DOCKER-USER ausente (dockerd parado?) — o Postgres publicado não terá filtro por origem."
+    return 0
+  fi
+
+  iptables -N "$DB_CHAIN" 2>/dev/null || true
+  iptables -F "$DB_CHAIN"
+
+  # Bridges do Docker seguem para as regras próprias do Docker (containers são
+  # confiáveis); só o tráfego que entra pela interface externa é filtrado.
+  iptables -A "$DB_CHAIN" -i br+ -j RETURN
+
+  info "Aplicando a whitelist ao Postgres publicado (TCP/${DB_PUBLISHED_PORT}, via DOCKER-USER)…"
+  for cidr in "${ALLOWED[@]}"; do
+    iptables -A "$DB_CHAIN" -p tcp -m conntrack --ctorigdstport "$DB_PUBLISHED_PORT" -s "$cidr" -j ACCEPT
+    echo -e "  ${GREEN}✓${NC} $cidr"
+  done
+
+  iptables -A "$DB_CHAIN" -p tcp -m conntrack --ctorigdstport "$DB_PUBLISHED_PORT" \
+    -m limit --limit 5/min -j LOG --log-prefix "EASYPHONE-DB-DROP: "
+  iptables -A "$DB_CHAIN" -p tcp -m conntrack --ctorigdstport "$DB_PUBLISHED_PORT" -j DROP
+  iptables -A "$DB_CHAIN" -j RETURN
+
+  while iptables -C DOCKER-USER -j "$DB_CHAIN" &>/dev/null; do
+    iptables -D DOCKER-USER -j "$DB_CHAIN"
+  done
+  iptables -I DOCKER-USER 1 -j "$DB_CHAIN"
+
+  ok "Postgres publicado restrito às origens do ALLOWED (demais origens dropadas)."
+}
 
 MODE="apply"
 FORCE=false
@@ -104,7 +169,10 @@ if [[ "$MODE" == "remove" ]]; then
     iptables -X "$WHITELIST_CHAIN"
   fi
 
+  remove_db_chain
+
   ok "Whitelist removida — a INPUT voltou a aceitar qualquer origem nas portas do projeto."
+  ok "Filtro de origem do Postgres publicado também removido."
   exit 0
 fi
 
@@ -112,6 +180,9 @@ fi
 #     A existência do whitelist.conf é o que ativa a whitelist. Sem ele saímos com
 #     0 para que o firewall-rules.sh possa chamar este script incondicionalmente.
 if [[ ! -f "$CONF_FILE" ]]; then
+  # Sem whitelist não há o que filtrar: garante que uma chain antiga do
+  # Postgres não continue bloqueando o banco publicado externamente.
+  remove_db_chain
   info "whitelist.conf não encontrado — whitelist desativada."
   info "Para ativar: cp whitelist.conf.example whitelist.conf && revise a lista."
   exit 0
@@ -222,6 +293,12 @@ else
   warn "Rode 'bash firewall-rules.sh' para montar as regras de porta."
 fi
 
+# ── Postgres publicado externamente (DOCKER-USER) ────────────────────
+#     A regra é instalada independente de POSTGRES_BIND_ADDR. Se o banco estiver
+#     em loopback ela não casa; se a env virar 0.0.0.0, o `docker compose up`
+#     já publica a porta e a whitelist passa a valer sem reaplicar o firewall.
+apply_db_chain
+
 echo
-echo -e "${GREEN}✓ Whitelist aplicada.${NC} Bloqueios ficam no log do kernel com o prefixo '${LOG_PREFIX}'."
+echo -e "${GREEN}✓ Whitelist aplicada.${NC} Bloqueios ficam no log do kernel com os prefixos '${LOG_PREFIX}' e 'EASYPHONE-DB-DROP: '."
 echo -e "  Para desfazer: ${YELLOW}sudo bash $0 --remove${NC}"

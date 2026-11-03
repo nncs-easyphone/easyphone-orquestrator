@@ -203,8 +203,18 @@ fi
 
 ok "Stack EasyPhone iniciada."
 echo
+PG_BIND="${POSTGRES_BIND_ADDR:-127.0.0.1}"
+case "$PG_BIND" in
+  ""|127.0.0.1|localhost|::1) PG_EXPOSED=false ;;
+  *)                          PG_EXPOSED=true ;;
+esac
 echo -e "  ${GREEN}→${NC} Traefik:    https://app.${DOMAIN:-exemplo.com} (web)  /  https://api.${DOMAIN:-exemplo.com} (api)  /  https://pbx.${DOMAIN:-exemplo.com} (wss)"
-echo -e "  ${GREEN}→${NC} Postgres:   127.0.0.1:${PG_PORT_HOST:-7001}  (loopback, não exposto)"
+if [[ "$PG_EXPOSED" == true ]]; then
+  echo -e "  ${YELLOW}→${NC} Postgres:   ${PG_BIND}:${PG_PORT_HOST:-7001}  (EXPOSTO EXTERNAMENTE)"
+  warn "Postgres publicado fora do loopback (POSTGRES_BIND_ADDR=$PG_BIND). Use apenas no ambiente de testes."
+else
+  echo -e "  ${GREEN}→${NC} Postgres:   127.0.0.1:${PG_PORT_HOST:-7001}  (loopback, não exposto)"
+fi
 echo -e "  ${GREEN}→${NC} PgBouncer:  127.0.0.1:${PGBOUNCER_PORT_HOST:-7003}  (loopback, não exposto)"
 echo -e "  ${GREEN}→${NC} Coturn:     STUN 3478/udp  |  TURN 3478/tcp+udp  |  TURNS 5349/tcp+udp  |  Relay 49152-65535/udp"
 echo -e "  ${GREEN}→${NC} Asterisk:   SIP 5060/udp  |  SIP TLS 5061/tcp  |  RTP 10000-20000/udp (AMI/ARI internos)"

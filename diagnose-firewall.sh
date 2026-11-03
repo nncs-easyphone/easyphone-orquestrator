@@ -42,6 +42,15 @@ if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); th
   SSH_PORT=22
 fi
 
+# Bind esperado do Postgres, conforme o .env do orquestrador.
+# 127.0.0.1/localhost/vazio = loopback; qualquer outro valor = publicado fora.
+PG_BIND_ADDR="$(grep -E '^POSTGRES_BIND_ADDR=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "[:space:]\"'")"
+PG_BIND_LOOPBACK=1
+case "$PG_BIND_ADDR" in
+  ""|127.0.0.1|localhost|::1) PG_BIND_LOOPBACK=1 ;;
+  *)                          PG_BIND_LOOPBACK=0 ;;
+esac
+
 echo "EasyPhone — diagnóstico de firewall"
 echo "Host: $(hostname)  —  $(date -Is)"
 echo "Kernel: $(uname -r)"
@@ -134,10 +143,34 @@ run iptables -n -L DOCKER-USER
 
 section "7. Portas em escuta no host"
 run ss -tulpn
-if ss -tlnp 2>/dev/null | grep -Eq '(0\.0\.0\.0|\[::\]):(7001|7003)\b'; then
-  warn "Postgres/PgBouncer aparecem fora de loopback; confira o compose e o firewall."
-else
+pg_7001_outside=0
+pg_7003_outside=0
+ss -tlnp 2>/dev/null | grep -Eq '(0\.0\.0\.0|\[::\]):7001\b' && pg_7001_outside=1
+ss -tlnp 2>/dev/null | grep -Eq '(0\.0\.0\.0|\[::\]):7003\b' && pg_7003_outside=1
+
+if (( pg_7003_outside )); then
+  warn "PgBouncer (7003) aparece fora de loopback; confira o compose (deveria ser sempre 127.0.0.1)."
+fi
+
+if (( pg_7001_outside )); then
+  if (( PG_BIND_LOOPBACK )); then
+    warn "Postgres (7001) aparece fora de loopback, mas POSTGRES_BIND_ADDR='${PG_BIND_ADDR:-127.0.0.1}' espera loopback."
+    warn "Confira o compose/firewall ou ajuste POSTGRES_BIND_ADDR no .env."
+  else
+    ok "Postgres publicado externamente (POSTGRES_BIND_ADDR=$PG_BIND_ADDR) — exposição intencional."
+    run iptables -n -L DOCKER-USER
+    if iptables -n -L EASYPHONE_DB &>/dev/null; then
+      run iptables -n -L EASYPHONE_DB
+    else
+      warn "Chain EASYPHONE_DB ausente; a whitelist NÃO está filtrando o Postgres publicado."
+      warn "Rode 'sudo bash firewall-rules.sh' uma vez após atualizar o repositório."
+    fi
+  fi
+elif (( PG_BIND_LOOPBACK )); then
   ok "Postgres/PgBouncer não aparecem em 0.0.0.0/[::] (loopback)."
+else
+  warn "POSTGRES_BIND_ADDR='$PG_BIND_ADDR' pede exposição, mas a porta 7001 não aparece publicada."
+  warn "Rode 'docker compose up -d postgres' para recriar o container com o novo bind."
 fi
 
 # ── 8. Conntrack ─────────────────────────────────────────────────────

@@ -59,7 +59,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "127.0.0.1:7001:5432"
+      - "${POSTGRES_BIND_ADDR:-127.0.0.1}:7001:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

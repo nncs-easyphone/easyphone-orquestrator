@@ -97,7 +97,7 @@ A stack inclui:
 | **Traefik** | `80/443` (HTTP/HTTPS) | Proxy reverso com SSL automático (Let's Encrypt) — rotas: `app.${DOMAIN}`, `api.${DOMAIN}`, `pbx.${DOMAIN}` |
 | **Web** | — | Interface gráfica em `https://app.exemplo.com` |
 | **API** | — | Backend REST em `https://api.exemplo.com` |
-| **Postgres** | — | Banco de dados (acesso interno apenas) |
+| **Postgres** | — (opcional: `7001` com `POSTGRES_BIND_ADDR=0.0.0.0`) | Banco de dados (loopback por padrão; externo apenas em testes) |
 | **PgBouncer** | — | Pool de conexões (acesso interno apenas) |
 | **certs-dumper** | — | Extrai o certificado de `pbx.${DOMAIN}` do `acme.json` do Traefik para o Coturn usar no TURNS |
 | **Coturn** | STUN `3478/udp`, TURN `3478/tcp+udp`, TURNS `5349/tcp+udp`, relay `49152-65535/udp` | STUN/TURN para WebRTC (NAT traversal) |
@@ -185,6 +185,43 @@ sudo bash init.sh
 docker compose exec traefik traefik healthcheck
 ```
 
+## Acesso externo ao Postgres (apenas ambiente de testes)
+
+Por padrão o Postgres escuta apenas em `127.0.0.1:7001`. Para publicá-lo externamente, ajuste o `.env`:
+
+```env
+POSTGRES_BIND_ADDR=0.0.0.0
+```
+
+Depois recrie o container:
+
+```bash
+docker compose up -d postgres
+```
+
+O `docker compose up` já aplica o novo bind (o volume `easyphone_pgdata` é preservado).
+
+- Com `whitelist.conf` ativo, a porta `7001` é filtrada pela mesma lista de origens (`DOCKER-USER`, chain `EASYPHONE_DB`). Rode `sudo bash firewall-rules.sh` uma vez após atualizar o repositório para instalar essa chain; depois disso, alternar a env não exige reaplicar o firewall.
+- Sem `whitelist.conf`, a porta fica aberta a qualquer origem, como as demais portas públicas.
+
+Conexão:
+
+```bash
+psql "host=<IP> port=7001 user=$POSTGRES_USER dbname=$POSTGRES_DB"
+```
+
+Para reverter:
+
+```env
+POSTGRES_BIND_ADDR=127.0.0.1
+```
+
+```bash
+docker compose up -d postgres
+```
+
+> ⚠️ A liberação é exclusiva para o ambiente de testes. O Postgres não tem TLS terminado pelo host; use apenas com rede/credenciais controladas.
+
 ## Whitelist de origens (opcional)
 
 Por padrão as portas do projeto ficam abertas a qualquer origem. Para restringir por IP, ative a whitelist:
@@ -208,13 +245,13 @@ INPUT (policy DROP)
   5  -j EASYPHONE_INPUT       ← filtro por porta (só para quem não é do ALLOWED)
 ```
 
-**⚠️ Origem no `ALLOWED` = acesso total.** A chain faz `ACCEPT`, então esses IPs saem da INPUT ali mesmo e **não** passam pelo filtro de portas: alcançam qualquer porta do host, inclusive AMI (5038), ARI (8088) e WSS (8089). Postgres/PgBouncer ficam em loopback. Para eles, a proteção do AMI passa a ser apenas a ACL do `manager.conf`.
+**⚠️ Origem no `ALLOWED` = acesso total.** A chain faz `ACCEPT`, então esses IPs saem da INPUT ali mesmo e **não** passam pelo filtro de portas: alcançam qualquer porta do host, inclusive AMI (5038), ARI (8088) e WSS (8089). O PgBouncer fica em loopback. O Postgres fica em loopback por padrão, mas quando publicado externamente (`POSTGRES_BIND_ADDR=0.0.0.0`) a whitelist também é aplicada a ele na `DOCKER-USER` (chain `EASYPHONE_DB`). Para as origens do `ALLOWED`, a proteção do AMI passa a ser apenas a ACL do `manager.conf`.
 
 Isso é deliberado. A `EASYPHONE_INPUT` libera um conjunto fixo de portas (a porta de gestão `SSH_PORT` — 22 por padrão —, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e **não** cobre SIP em TCP/5060 nem portas 50xx alternativas — com `RETURN`, um tronco já presente na whitelist continuava sendo descartado por falar numa porta fora dessa lista, uma falha silenciosa e difícil de diagnosticar. Trate o `whitelist.conf` como lista de **hosts confiáveis**, não como filtro de borda.
 
 As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem restritos às portas da `EASYPHONE_INPUT`.
 
-**O que a whitelist NÃO alcança:** as portas 80/443 do Traefik. Tráfego de container publicado não passa pela INPUT — vai por `nat/PREROUTING` → `FORWARD` → chains `DOCKER-*`. `app.`, `api.` e o desafio TLS do Let's Encrypt seguem abertos ao mundo, de propósito.
+**O que a whitelist NÃO alcança:** as portas 80/443 do Traefik. Tráfego de container publicado não passa pela INPUT — vai por `nat/PREROUTING` → `FORWARD` → chains `DOCKER-*`. `app.`, `api.` e o desafio TLS do Let's Encrypt seguem abertos ao mundo, de propósito. A exceção é o Postgres publicado: ele também passa por `DOCKER-USER`, e o `whitelist-rules.sh` aplica a lista na chain `EASYPHONE_DB`.
 
 **Antes de ativar, confira que a lista cobre:**
 
@@ -225,6 +262,8 @@ As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem res
 ```bash
 # Ver a chain e o que ela está bloqueando
 sudo iptables -L EASYPHONE_WHITELIST -n -v --line-numbers
+# Postgres publicado (quando POSTGRES_BIND_ADDR=0.0.0.0)
+sudo iptables -L EASYPHONE_DB -n -v --line-numbers
 sudo journalctl -k | grep EASYPHONE-WL-DROP
 
 # Desfazer

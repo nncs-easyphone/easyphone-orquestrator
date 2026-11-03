@@ -10,8 +10,11 @@
 # ⚠️ ORIGEM LISTADA AQUI = ACESSO TOTAL AO HOST. A chain EASYPHONE_WHITELIST faz
 # ACCEPT para estes CIDRs, então eles NÃO passam pelo filtro de portas da
 # EASYPHONE_INPUT: alcançam qualquer porta, inclusive AMI (5038), ARI (8088),
-# WSS (8089). Postgres/PgBouncer ficam em loopback. Esta é uma lista de hosts CONFIÁVEIS — troncos,
-# operadoras e máquinas de administração — não um filtro de borda.
+# WSS (8089). O PgBouncer fica em loopback. O Postgres fica em loopback por
+# padrão; publicado externamente (POSTGRES_BIND_ADDR=0.0.0.0), ele também é
+# filtrado por esta lista na DOCKER-USER (chain EASYPHONE_DB). Esta é uma lista
+# de hosts CONFIÁVEIS — troncos, operadoras e máquinas de administração — não um
+# filtro de borda.
 #
 # ⚠️ ANTES DE ATIVAR, confira que a lista cobre:
 #   - o IP de onde você administra o servidor (senão você perde o SSH — o script
@@ -23,7 +26,8 @@
 #
 # O que a whitelist NÃO alcança: as portas 80/443 do Traefik. Tráfego de container
 # publicado não passa pela chain INPUT, então app./api. e o desafio TLS do
-# Let's Encrypt continuam abertos ao mundo — de propósito.
+# Let's Encrypt continuam abertos ao mundo — de propósito. O Postgres publicado é
+# a exceção: como também é DNATed, a lista é aplicada na DOCKER-USER.
 
 ALLOWED=(
   "127.0.0.1/32"        # redundante (o lo já é aceito antes do jump), mantido por clareza
