@@ -453,8 +453,9 @@ services:
       - ./safety:/app/safety:Z
       # Estado/logs em pasta física do host. `:Z` rotula para SELinux (hosts
       # Fedora) e é ignorado em hosts sem SELinux. O dono (1001:1001) é
-      # garantido automaticamente pelo entrypoint da imagem no start; o chown
-      # do init.sh/run.sh permanece apenas como reforço.
+      # garantido automaticamente pelo entrypoint da imagem no start (inclusive
+      # subpastas de volumes reaproveitados); o chown do init.sh/run.sh
+      # permanece apenas como reforço.
       - ./states:/app/states:Z
 
 volumes:
