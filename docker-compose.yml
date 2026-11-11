@@ -267,21 +267,75 @@ services:
       migrations:
         condition: service_completed_successfully
 
-  # Hostname, sistema operacional e redes do HOST para o card "Informações do
-  # Servidor" do Dashboard. A api roda na bridge e, de dentro dela, só enxerga o
-  # container (ID, Alpine, eth0 172.x); este serviço usa a rede e o UTS do host
-  # e grava um JSON no volume host_info, que a api lê em HOST_INFO_PATH.
+  # Único container com acesso ao docker.sock. Expõe uma allowlist exata de
+  # GETs em um socket Unix dentro de um volume; não tem rede, porta nem método
+  # de escrita. O host-info conversa com este proxy, nunca com o socket real.
+  docker-proxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: easyphone-docker-proxy
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+      - /var/lib/haproxy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      BIND_CONFIG: unix@/run/proxy/docker.sock
+      SOCKET_PATH: /var/run/docker.sock
+      LOG_LEVEL: info
+    volumes:
+      - ./docker-proxy/haproxy.cfg.template:/usr/local/etc/haproxy/haproxy.cfg.template:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - docker_proxy_socket:/run/proxy
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/proxy/docker.sock"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # Coletor do HOST: mantém o contrato do host-info.json lido pela API no card
+  # "Informações do Servidor" e, a cada 10 min, envia versão do orquestrador,
+  # containers e imagens ao Firebase. Roda com a rede e o UTS do host porque de
+  # dentro de um container comum só se enxerga o próprio container.
   host-info:
-    image: alpine:3.20
+    image: node:24-alpine
     container_name: easyphone-host-info
     restart: unless-stopped
     logging: *default-logging
     network_mode: host
     uts: host
-    command: sh /collect.sh
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command: node /opt/host-info/collect.mjs
+    environment:
+      FIREBASE_URL: ${FIREBASE_URL}
+      FIREBASE_SERVICE_ACCOUNT: '${FIREBASE_SERVICE_ACCOUNT}'
+      LICENSE_CLIENT_ID: ${LICENSE_CLIENT_ID}
+      LICENSE_HARDWARE_ID: ${LICENSE_HARDWARE_ID}
+    depends_on:
+      docker-proxy:
+        condition: service_healthy
     volumes:
-      - ./host-info/collect.sh:/collect.sh:ro
+      # Scripts em /opt/host-info e dados em /host-info: são mountpoints
+      # distintos porque o volume nomeado não pode ocupar o mesmo caminho.
+      - ./host-info:/opt/host-info:ro
+      - ./VERSION:/orchestrator/VERSION:ro
       - /etc/os-release:/host/os-release:ro
+      - /proc:/host/proc:ro
+      - /:/host/rootfs:ro
+      - docker_proxy_socket:/run/docker-proxy:ro
       - host_info:/host-info
 
   api:
@@ -477,6 +531,8 @@ volumes:
     name: easyphone_backup_data
   host_info:
     name: easyphone_host_info
+  docker_proxy_socket:
+    name: easyphone_docker_proxy_socket
 
 networks:
   default:
