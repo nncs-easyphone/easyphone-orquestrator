@@ -103,6 +103,8 @@ A stack inclui:
 | **Coturn** | STUN `3478/udp`, TURN `3478/tcp+udp`, TURNS `5349/tcp+udp`, relay `49152-65535/udp` | STUN/TURN para WebRTC (NAT traversal) |
 | **Asterisk** | SIP `5060/udp`, SIP TLS `5061/tcp`, RTP `10000-20000/udp` | PBX (AMI `5038`, ARI `8088` e WSS `8089` são internos — só acessíveis pela bridge do Docker; a 8088 escuta por padrão só na docker0, `172.17.0.1`; `ASTERISK_HTTP_BIND_ADDR` sobrepõe, ver `.env.example`) |
 | **Backup** | — | Backup para S3 (dump do Postgres, gravações e assets). Staging no volume `easyphone_backup_data:/app/backup`; estado e logs de execução em `./states` (bind mount em `/app/states`) |
+| **docker-proxy** | — | Único serviço com acesso ao `docker.sock`. Expõe uma allowlist exata de GETs em socket Unix; não tem rede, porta nem escrita |
+| **host-info** | — | Coleta dados do host e, a cada 10 min, envia ao Firebase a versão do orquestrador, containers e imagens. Também mantém o `host-info.json` do card "Informações do Servidor" |
 
 ## 4. Acesse
 
@@ -158,7 +160,56 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | `docker-compose.yml` | Definição dos serviços |
 | `traefik/conf/wss.yml.example` | Template do proxy WSS (router `pbx.${DOMAIN}`) — o `.yml` é gerado pelo `init.sh` |
 | `coturn/turnserver.conf.example` | Template do Coturn — o `.conf` é gerado pelo `init.sh` |
-| `host-info/collect.sh` | Coletor do serviço `host-info`: grava hostname, SO e redes do host (sem `docker0`/`br-*`/`veth*`) num JSON que a API lê para o card "Informações do Servidor" — de dentro do container ela só enxergaria o próprio container |
+| `host-info/collect.mjs` | Coletor do serviço `host-info`: grava hostname, SO e redes do host (sem `docker0`/`br-*`/`veth*`) em `host-info.json` para o card "Informações do Servidor" e, a cada 10 min, envia ao Firebase o relatório de versão, containers e imagens |
+| `docker-proxy/haproxy.cfg.template` | Allowlist exata do Docker: somente `GET /version`, `/containers/json`, `/containers/{id}/json` e `/images/json` |
+| `VERSION` | Versão do orquestrador enviada no relatório de monitoramento |
+| `doc/monitoramento.md` | Contrato do `system-report.json`, campos coletados e diagnóstico |
+
+## Monitoramento da instalação
+
+O serviço `host-info` coleta os dados do host e mantém o comportamento original
+do card "Informações do Servidor". A partir desta versão ele também grava
+`system-report.json` no mesmo volume e, a cada **10 minutos**, envia ao Firebase:
+
+- versão do orquestrador (`VERSION`);
+- hostname, SO, kernel, CPU, memória, swap, disco e redes;
+- versão do Docker Engine;
+- containers do projeto `easyphone` e imagens usadas, com tag, digest e data de criação.
+
+O envio usa apenas variáveis que já existem no `.env`: `FIREBASE_URL`,
+`FIREBASE_SERVICE_ACCOUNT`, `LICENSE_CLIENT_ID` e `LICENSE_HARDWARE_ID`. Sem
+elas, o coletor continua gravando os arquivos locais e não envia nada.
+
+O `host-info` **não monta o `docker.sock`**. Ele fala com o serviço
+`docker-proxy`, que é o único com o socket real. O proxy:
+
+- não tem rede nem porta publicada (`network_mode: none`);
+- expõe o socket em um volume acessível apenas ao `host-info`;
+- só aceita `GET` nos endpoints `/version`, `/containers/json`,
+  `/containers/{id}/json` e `/images/json`;
+- retorna 403 para qualquer outro método ou endpoint (logs, export, exec,
+  events, volumes, info, POST etc.).
+
+A imagem do proxy é fixada por digest e roda com `read_only`,
+`cap_drop: ALL` e `no-new-privileges`.
+
+Para aplicar em uma instalação existente, sem reinstalar a stack:
+
+```bash
+git pull
+docker compose pull docker-proxy host-info
+docker compose up -d docker-proxy host-info
+```
+
+Conferência:
+
+```bash
+docker logs -f easyphone-host-info
+docker exec easyphone-host-info cat /host-info/host-info.json
+docker exec easyphone-host-info cat /host-info/system-report.json
+```
+
+O contrato completo está em `doc/monitoramento.md`.
 
 ## Comandos úteis
 

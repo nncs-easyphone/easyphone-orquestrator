@@ -1,0 +1,41 @@
+global
+    log stdout format raw daemon "${LOG_LEVEL}"
+    pidfile /run/haproxy.pid
+    maxconn 4000
+
+defaults
+    mode http
+    log global
+    option httplog
+    option dontlognull
+    option http-server-close
+    option redispatch
+    retries 3
+    timeout http-request 10s
+    timeout queue 1m
+    timeout connect 10s
+    timeout client 10m
+    timeout server 10m
+    timeout http-keep-alive 10s
+    timeout check 10s
+    maxconn 3000
+
+backend dockerbackend
+    server dockersocket $SOCKET_PATH
+
+frontend dockerfrontend
+    bind ${BIND_CONFIG}
+
+    # O coletor só lê. Qualquer método diferente de GET vira 403.
+    http-request deny unless METH_GET
+
+    # Allowlist exata dos endpoints usados pelo host-info. `path` não inclui a
+    # query string, então `?all=1` continua permitido. O prefixo /v1.xx é
+    # opcional porque o host-info negocia a versão da API.
+    http-request allow if { path,url_dec -m reg -i ^(/v[0-9]+\.[0-9]+)?/version$ }
+    http-request allow if { path,url_dec -m reg -i ^(/v[0-9]+\.[0-9]+)?/containers/json$ }
+    http-request allow if { path,url_dec -m reg -i ^(/v[0-9]+\.[0-9]+)?/containers/[a-zA-Z0-9_.-]+/json$ }
+    http-request allow if { path,url_dec -m reg -i ^(/v[0-9]+\.[0-9]+)?/images/json$ }
+
+    http-request deny
+    default_backend dockerbackend
