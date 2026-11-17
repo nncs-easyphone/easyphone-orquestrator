@@ -114,9 +114,6 @@ services:
 
   migrations:
     image: ghcr.io/nncs-easyphone/easyphone-api:main
-    build:
-      context: ../easyphone-api
-      dockerfile: Dockerfile
     container_name: easyphone-migrations
     command: sh -c "npx prisma migrate deploy"
     environment:
@@ -174,9 +171,6 @@ services:
 
   asterisk:
     image: ghcr.io/nncs-easyphone/easyphone-asterisk:main
-    build:
-      context: ../easyphone-asterisk
-      dockerfile: Dockerfile
     container_name: easyphone-asterisk
     restart: unless-stopped
     logging: *default-logging
@@ -220,9 +214,6 @@ services:
 
   seed:
     image: ghcr.io/nncs-easyphone/easyphone-api:main
-    build:
-      context: ../easyphone-api
-      dockerfile: Dockerfile
     container_name: easyphone-seed
     command: sh -c "npx prisma db seed"
     environment:
@@ -340,9 +331,6 @@ services:
 
   api:
     image: ghcr.io/nncs-easyphone/easyphone-api:main
-    build:
-      context: ../easyphone-api
-      dockerfile: Dockerfile
     container_name: easyphone-api
     restart: unless-stopped
     stop_grace_period: 15s
@@ -425,9 +413,6 @@ services:
 
   web:
     image: ghcr.io/nncs-easyphone/easyphone-web:main
-    build:
-      context: ../easyphone-web
-      dockerfile: Dockerfile
     container_name: easyphone-web
     restart: unless-stopped
     logging: *default-logging
@@ -463,9 +448,6 @@ services:
 
   backup:
     image: ghcr.io/nncs-easyphone/easyphone-backup:main
-    build:
-      context: ../easyphone-backup
-      dockerfile: Dockerfile
     container_name: easyphone-backup
     restart: unless-stopped
     logging: *default-logging

@@ -26,17 +26,45 @@ Esta stack é **on-premise, single-tenant e single-node**:
 | `api.${DOMAIN}` | API REST |
 | `pbx.${DOMAIN}` | WebSocket SIP (WebRTC) e realm do Coturn |
 
-## 1. Clone o repositório
+## 1. Instale com o instalador público
+
+Em uma máquina limpa, não é preciso clonar o repositório:
 
 ```bash
-git clone <URL_DO_REPOSITORIO> /opt/easyphone
-cd /opt/easyphone/easyphone-orquestrator
+curl -fsSL https://install.easyphone.com.br | sudo bash
 ```
 
-## 2. Execute o init
+O instalador:
+
+- valida SO/arquitetura e instala Docker, Compose e iptables quando necessário;
+- solicita usuário e PAT do GitHub com `read:packages`;
+- autentica no `ghcr.io` e baixa a imagem privada `ghcr.io/nncs-easyphone/easyphone-orquestrator:main`;
+- extrai os arquivos em `/opt/easyphone-orquestrator`;
+- executa o `init.sh` interativo.
+
+O PAT fica somente na máquina local, no `~/.docker/config.json` do root.
+
+### Pré-requisito: Token GHCR
+
+As imagens da stack estão no GitHub Container Registry (`ghcr.io/nncs-easyphone/*`). Você precisa de um **Personal Access Token (PAT)** do GitHub com escopo `read:packages`:
+
+1. Acesse https://github.com/settings/tokens
+2. Gere um token clássico com escopo `read:packages`
+3. Informe usuário e token quando o instalador solicitar. A credencial é usada para baixar o bundle do orquestrador e as imagens da stack.
+
+> Para automação sem terminal interativo:
+>
+> ```bash
+> curl -fsSL https://install.easyphone.com.br \
+>   | sudo GHCR_USER=seu-usuario GHCR_TOKEN=seu-pat bash
+> ```
+
+## 2. O que o init.sh faz
+
+O `init.sh` é executado pelo instalador e também pode ser rodado manualmente em `/opt/easyphone-orquestrator`:
 
 ```bash
-sudo bash init.sh
+sudo bash /opt/easyphone-orquestrator/init.sh
 ```
 
 O script interativamente:
@@ -52,6 +80,11 @@ O script interativamente:
 | **5/7** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
 | **6/7** | Pergunta se deseja instalar (ou reinstalar) o logo do EasyPhone no console (`/etc/issue`) e no MOTD do SSH (`/etc/update-motd.d/01-easyphone`) |
 
+> Em instalação nova, o instalador público chama o init com
+> `--skip-docker --skip-registry-login`, porque Docker e login no GHCR já foram
+> feitos por ele. Em atualização, chama com `--refresh`, que mantém o `.env` e
+> reaplica apenas a configuração. O `scripts/update.sh` usa o mesmo `--refresh`.
+
 > **Importante:** Na etapa 0/7, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
 
 > **DNS do Traefik:** na etapa 0/7 o `init.sh` pergunta os dois servidores DNS usados pelo container do Traefik (`DNS_SERVER_1`/`DNS_SERVER_2`, padrão `8.8.8.8`/`1.1.1.1`). Isso afeta apenas a resolução externa do Traefik — a resolução de nomes de serviço do Docker (embedded DNS) não muda.
@@ -62,13 +95,56 @@ O script interativamente:
 
 > **Porta de gestão (SSH):** na etapa 0/7 o `init.sh` pergunta a porta de gestão (padrão `22`) e grava em `SSH_PORT` no `.env`. O firewall libera **apenas** essa porta — inclusive no boot (via `easyphone-firewall.service`). O script **não** altera o `sshd`: se você escolher uma porta diferente de 22, configure antes o `/etc/ssh/sshd_config.d/` (`Port <SSH_PORT>`, valide com `sshd -t && systemctl restart ssh`) ou você perderá o acesso. O `scripts/diagnose-firewall.sh` compara a porta liberada no firewall com a que o `sshd` escuta e avisa em caso de divergência.
 
-### Pré-requisito: Token GHCR
+> **Atualização:** para atualizar uma máquina já instalada:
+>
+> ```bash
+> sudo bash /opt/easyphone-orquestrator/scripts/update.sh
+> sudo bash /opt/easyphone-orquestrator/scripts/update.sh --check
+> sudo bash /opt/easyphone-orquestrator/scripts/update.sh --rollback
+> ```
+>
+> O update compara o digest da tag `main` com `.installed-image`, preserva
+> `.env`, `logs/`, `states/`, `safety/`, `whitelist.conf` e os arquivos gerados,
+> e reaplica a configuração do host. O `--rollback` restaura os arquivos do
+> orquestrador do backup anterior; as imagens da stack continuam na tag `main`.
 
-As imagens da stack estão no GitHub Container Registry (`ghcr.io/nncs-easyphone/*`). Você precisa de um **Personal Access Token (PAT)** do GitHub com escopo `read:packages`:
+### Compatibilidade com instalações antigas
 
-1. Acesse https://github.com/settings/tokens
-2. Gere um token clássico com escopo `read:packages`
-3. Guarde o token — o `init.sh` vai pedi-lo durante a execução
+O fluxo antigo continua funcionando:
+
+```bash
+git clone <URL_PRIVADA> /opt/easyphone-orquestrator
+cd /opt/easyphone-orquestrator
+sudo bash init.sh
+sudo bash scripts/run.sh
+```
+
+Ao rodar o instalador em uma máquina já configurada, ele:
+
+- detecta a instalação em `/opt/easyphone-orquestrator` ou `/opt/easyphone/easyphone-orquestrator` (ou no caminho de `--dir`/`EASYPHONE_DIR`);
+- atualiza **no mesmo diretório**, sem mover arquivos nem parar a stack para copiar;
+- preserva `.env`, `env-*.bkp`, `.git`, `logs/`, `states/`, `safety/`, `data/`, `whitelist.conf`, `wss.yml`, `turnserver.conf`, `docker-compose.override.yml` e arquivos customizados;
+- sobrescreve apenas os arquivos entregues no bundle (o instalador informa quantos arquivos existentes serão sobrescritos);
+- cria um backup em `.backup/<data>-<versão>/bundle-before-update.tar.gz` com permissão root-only, incluindo `.env` e configs que podem ser regeneradas;
+- se `.git` existir e houver alterações em arquivos versionados, lista os arquivos e pede confirmação (ou use `--force`);
+- roda `init.sh --refresh` no mesmo diretório, mantendo as units systemd válidas.
+
+Depois da primeira atualização via bundle, o `.git` é preservado, mas o diretório deixa de ser um checkout git limpo. A partir daí, use `scripts/update.sh`; o `git pull` continua disponível apenas para quem permanecer no fluxo antigo sem usar o instalador.
+
+Para desfazer a última atualização:
+
+```bash
+sudo bash scripts/update.sh --rollback
+```
+
+O rollback restaura os arquivos do orquestrador e o `.env` do backup; as configs geradas (`wss.yml`, `turnserver.conf`) são recriadas a partir do `.env`. As imagens da stack continuam na tag `main`.
+
+Se a atualização falhar antes de o novo `scripts/update.sh` ser extraído, o backup ainda pode ser restaurado manualmente:
+
+```bash
+sudo tar -C /opt/easyphone-orquestrator \
+  -xzf /opt/easyphone-orquestrator/.backup/<data>-<versão>/bundle-before-update.tar.gz
+```
 
 Cada instalação exibe o log completo dentro de uma caixa `┌─ ─┐`.  
 O log completo da execução fica salvo em **`logs/install-<data-hora>.log`**, na
@@ -76,16 +152,17 @@ pasta do orquestrador. Cada execução gera um arquivo novo (com timestamp),
 preservando o histórico — o mesmo vale para `logs/run-<data-hora>.log`. Esses
 arquivos não são versionados (ver `.gitignore`).
 
-> Se o Docker já estiver instalado, o script pergunta se deseja reinstalar.  
-> O `systemctl enable docker` é executado **sempre** que o Docker está presente.
+> Em uma instalação manual, se o Docker já estiver instalado, o script pergunta
+> se deseja reinstalar. No instalador público essa etapa é pulada e o
+> `systemctl enable docker` é executado **sempre** que o Docker está presente.
 
 ## 3. Suba a stack
 
 ```bash
-bash scripts/run.sh
+sudo bash /opt/easyphone-orquestrator/scripts/run.sh
 ```
 
-Ou, se pulou essa etapa no `init.sh`:
+Ou, a partir de `/opt/easyphone-orquestrator`:
 
 ```bash
 docker compose up -d
@@ -150,11 +227,15 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 
 | Arquivo | Descrição |
 |---|---|
+| `Dockerfile` / `.dockerignore` | Imagem privada usada apenas como transporte dos arquivos do orquestrador para `/opt/easyphone-orquestrator`; inclui `manifest.txt` com a lista de arquivos entregues |
+| `docker-compose.build.yml` | Override de desenvolvimento para recompilar as imagens a partir dos repositórios irmãos |
 | `init.sh` | Wrapper na raiz que chama `scripts/init.sh` — mantém o comando `sudo bash init.sh` |
+| `update.sh` | Wrapper na raiz que chama `scripts/update.sh` |
 | `install-terminal-logo.sh` | Instala/reinstala o banner do console e o MOTD do SSH em máquinas que já rodaram o `init.sh` (`--console`, `--ssh` ou `--all`) |
 | `install-whitelist-watch.sh` | Instala/reinstala o watcher da whitelist em máquinas que já rodaram o `init.sh` (`--remove` desativa o serviço) |
-| `scripts/init.sh` | Implementação do provisionamento (Docker, ghcr, iptables, firewall, watcher da whitelist, compose e logo do terminal) |
+| `scripts/init.sh` | Implementação do provisionamento (Docker, ghcr, iptables, firewall, watcher da whitelist, compose e logo do terminal). Aceita `--refresh`, `--skip-docker` e `--skip-registry-login` |
 | `scripts/run.sh` | Script para subir a stack e reaplicar a whitelist ao final, quando configurada |
+| `scripts/update.sh` | Atualiza a máquina já instalada a partir da imagem `:main`, preservando `.env` e dados; aceita `--check`, `--rollback` e `--force` |
 | `scripts/firewall-rules.sh` | Regras de firewall com chain dedicada `EASYPHONE_INPUT` |
 | `scripts/whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `scripts/firewall-rules.sh`; aceita loopback e `ESTABLISHED,RELATED` para não derrubar respostas de conexões de saída |
 | `scripts/whitelist-watch.sh` | Watcher systemd: escuta `docker events` (`start`/`restart`) dos containers `easyphone-*` e reaplica a whitelist com debounce e lock |
@@ -162,7 +243,7 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | `scripts/diagnose-firewall.sh` | Diagnóstico somente leitura de firewall, Docker e rede |
 | `scripts/banner-easyphone.sh` | Instala o logo do EasyPhone no `/etc/issue` (login do console) |
 | `scripts/motd-easyphone.sh` | Instala o logo e o resumo do host no `/etc/update-motd.d/01-easyphone` (login via SSH) |
-| `init.sh`, `run.sh`, `firewall-rules.sh`, `whitelist-rules.sh`, `diagnose-firewall.sh`, `banner-easyphone.sh`, `motd-easyphone.sh` | Wrappers na raiz que chamam a implementação correspondente em `scripts/` (mantêm os comandos antigos) |
+| `init.sh`, `run.sh`, `update.sh`, `firewall-rules.sh`, `whitelist-rules.sh`, `diagnose-firewall.sh`, `banner-easyphone.sh`, `motd-easyphone.sh` | Wrappers na raiz que chamam a implementação correspondente em `scripts/` (mantêm os comandos antigos) |
 | `systemd/easyphone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
 | `systemd/easyphone-whitelist-watch.service.example` | Template do watcher que reaplica a whitelist em novos containers — o unit final é gerado pelo instalador |
 | `whitelist.conf.example` | Template da lista de origens permitidas — copie para `whitelist.conf` para ativar |
@@ -174,6 +255,8 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | `host-info/collect.mjs` | Coletor do serviço `host-info`: grava hostname, SO e redes do host (sem `docker0`/`br-*`/`veth*`) em `host-info.json` para o card "Informações do Servidor" e, a cada 10 min, envia ao Firebase o relatório de versão, containers e imagens |
 | `docker-proxy/haproxy.cfg.template` | Allowlist exata do Docker: somente `GET /version`, `/containers/json`, `/containers/{id}/json` e `/images/json` |
 | `VERSION` | Versão do orquestrador enviada no relatório de monitoramento |
+| `.installed-image` | Digest da imagem bundle extraída (criado em tempo de execução; fora do Git) |
+| `.backup/` | Backups root-only (`700`/`600`) dos arquivos e configs antes de cada atualização (fora do Git) |
 | `doc/monitoramento.md` | Contrato do `system-report.json`, campos coletados e diagnóstico |
 
 ## Logo no terminal (opcional)
@@ -261,7 +344,7 @@ A imagem do proxy é fixada por digest e roda com `read_only`,
 Para aplicar em uma instalação existente, sem reinstalar a stack:
 
 ```bash
-git pull
+cd /opt/easyphone-orquestrator
 docker compose pull docker-proxy host-info
 docker compose up -d docker-proxy host-info
 ```
@@ -278,7 +361,21 @@ O contrato completo está em `doc/monitoramento.md`.
 
 ## Comandos úteis
 
+Execute a partir de `/opt/easyphone-orquestrator`.
+
 ```bash
+# Atualizar o orquestrador (imagem :main)
+sudo bash scripts/update.sh
+
+# Verificar se há uma versão nova, sem alterar nada
+sudo bash scripts/update.sh --check
+
+# Restaurar o backup anterior e subir a stack
+sudo bash scripts/update.sh --rollback
+
+# Forçar reextração do bundle (ignora alterações locais do git)
+sudo bash scripts/update.sh --force
+
 # Subir a stack
 docker compose up -d
 
@@ -538,7 +635,7 @@ Nem `iptables -F INPUT`. A INPUT termina em DROP e carrega o jump para a `EASYPH
 
 ### `docker compose pull` falha com "unauthorized"
 
-O token ghcr expirou ou não tem permissão. Reexecute o `sudo bash init.sh` e faça login novamente na etapa 2/7.
+O token ghcr expirou ou não tem permissão. Rode `sudo bash scripts/update.sh` (ele solicita o PAT novamente) ou refaça o login com `docker login ghcr.io`.
 
 ### Portas não respondendo
 

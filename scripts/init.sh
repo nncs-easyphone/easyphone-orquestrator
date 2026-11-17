@@ -146,6 +146,7 @@ update_env() {
     { print }
     END { if (!replaced) print k "=" v }
   ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+  chmod 600 "$file" 2>/dev/null || true
   chown_owner "$file"
 }
 
@@ -206,7 +207,7 @@ box_end() {
 cat << "EOF"
 
  ╔══════════════════════════════════════════════════════════╗
- ║        EasyPhone Orchestrator — Server Setup              ║
+ ║        EasyPhone Orchestrator — Server Setup             ║
  ║        Docker + iptables + Firewall                      ║
  ╚══════════════════════════════════════════════════════════╝
 EOF
@@ -217,13 +218,61 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+REFRESH=false
+SKIP_DOCKER=false
+SKIP_REGISTRY_LOGIN=false
+ASSUME_YES=false
+
+usage() {
+  cat <<'EOF'
+Uso: sudo bash init.sh [opções]
+
+Opções:
+  --refresh               Modo atualização: mantém o .env, regenera arquivos
+                          derivados e reinstala os serviços systemd.
+  --skip-docker           Não instala/reinstala o Docker (já provisionado).
+  --skip-registry-login   Não tenta autenticar no GHCR (o bootstrap já fez).
+  --assume-yes, -y        Responde "sim" às etapas idempotentes.
+  -h, --help              Mostra esta ajuda.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --refresh) REFRESH=true ;;
+    --skip-docker) SKIP_DOCKER=true ;;
+    --skip-registry-login) SKIP_REGISTRY_LOGIN=true ;;
+    --assume-yes|-y) ASSUME_YES=true ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      error "Opção desconhecida: $1"
+      echo
+      usage
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+# No modo atualização o bootstrap já cuidou de Docker e registro.
+if $REFRESH; then
+  SKIP_DOCKER=true
+  SKIP_REGISTRY_LOGIN=true
+fi
+
 INSTALLED=()
 
-# Atualiza índice de pacotes uma única vez no início
-box_start "Atualização de pacotes"
-apt-get update 2>&1 | tee -a "$LOGFILE" || { error "Falha ao atualizar índice de pacotes. Verifique a conexão."; exit 1; }
-ok "Índice de pacotes atualizado."
-box_end
+# Atualiza índice de pacotes uma única vez no início.
+# No modo atualização isso é evitado: a máquina já está provisionada e o
+# comando pode falhar em redes restritas, impedindo uma atualização válida.
+if ! $REFRESH; then
+  box_start "Atualização de pacotes"
+  apt-get update 2>&1 | tee -a "$LOGFILE" || { error "Falha ao atualizar índice de pacotes. Verifique a conexão."; exit 1; }
+  ok "Índice de pacotes atualizado."
+  box_end
+else
+  ok "Modo atualização: índice de pacotes não será atualizado agora."
+fi
 
 # ─────────────────────────────────────────────────────────────────────
 #  0. CONFIGURAÇÃO DE AMBIENTE (.env)
@@ -237,7 +286,13 @@ FIRST_RUN=false
 CONFIG_ENABLED=false
 ENV_BACKED_UP=false
 
-if [[ -f "$ENV_FILE" ]]; then
+if $REFRESH; then
+  if [[ ! -f "$ENV_FILE" ]]; then
+    error "Modo --refresh requer um .env existente em $ENV_FILE."
+    exit 1
+  fi
+  ok "Modo atualização: mantendo o .env existente."
+elif [[ -f "$ENV_FILE" ]]; then
   if ask_no "Deseja atualizar as variáveis do .env?"; then
     info "Carregando valores atuais do .env..."
     load_env_safe
@@ -534,9 +589,24 @@ if $CONFIG_ENABLED; then
   ok ".env configurado com sucesso!"
 fi
 
+# O .env contém segredos (JWT, banco, service account). Restringe a leitura
+# ao dono, inclusive em instalações antigas que ficaram com 644.
+if [[ -f "$ENV_FILE" ]]; then
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
+fi
+
 # Carrega .env para os steps seguintes (se existe) — sem executar o arquivo
 if [[ -f "$ENV_FILE" ]]; then
   load_env_safe
+fi
+
+# A chave do DNS challenge é obrigatória no compose (${DNS_CHALLENGE_API_KEY:?}).
+# No modo refresh a configuração interativa é pulada, então garante aqui que
+# instalações antigas ou com o valor vazio continuem subindo.
+if [[ -z "${DNS_CHALLENGE_API_KEY:-}" ]]; then
+  printf -v DNS_CHALLENGE_API_KEY '%s' "$(gen_hex_secret 32)"
+  update_env "DNS_CHALLENGE_API_KEY" "$DNS_CHALLENGE_API_KEY" "$ENV_FILE"
+  ok "API Key do DNS challenge gerada automaticamente."
 fi
 
 # Credencial AMI/ARI compartilhada: precisa existir antes do compose, inclusive
@@ -611,7 +681,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 step "1/7 — Docker Engine"
 
-if command -v docker &>/dev/null; then
+if ! $SKIP_DOCKER && command -v docker &>/dev/null; then
   ok "Docker já está instalado: $(docker --version 2>/dev/null)"
   if ! ask_yes "Deseja reinstalar/atualizar o Docker?"; then
     echo "  → Pulando instalação do Docker."
@@ -622,7 +692,7 @@ if command -v docker &>/dev/null; then
   fi
 fi
 
-if ! command -v docker &>/dev/null || [[ " ${INSTALLED[*]} " =~ "docker (reinstalado)" ]]; then
+if ! $SKIP_DOCKER && { ! command -v docker &>/dev/null || [[ " ${INSTALLED[*]} " =~ "docker (reinstalado)" ]]; }; then
   if ask_yes "Instalar Docker?"; then
     info "Verificando curl…"
     if ! command -v curl &>/dev/null; then
@@ -656,6 +726,11 @@ if ! command -v docker &>/dev/null || [[ " ${INSTALLED[*]} " =~ "docker (reinsta
   fi
 fi
 
+if $SKIP_DOCKER && ! command -v docker &>/dev/null; then
+  error "Docker não encontrado, mas --skip-docker foi informado."
+  exit 1
+fi
+
 # Garante Docker habilitado no boot (sempre, não só na instalação)
 if command -v docker &>/dev/null; then
   systemctl enable docker &>/dev/null || true
@@ -670,7 +745,9 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 step "2/7 — GitHub Container Registry (ghcr.io)"
 
-if ! command -v docker &>/dev/null; then
+if $SKIP_REGISTRY_LOGIN; then
+  ok "Login no GHCR ignorado (--skip-registry-login)."
+elif ! command -v docker &>/dev/null; then
   warn "Docker não está disponível. Faça o login manual depois com:"
   echo "  echo TOKEN | docker login ghcr.io -u USERNAME --password-stdin"
 else
@@ -734,8 +811,11 @@ IPTABLES_INSTALLED=false
 
 if ! command -v iptables &>/dev/null; then
   warn "iptables não encontrado."
-  if ask_yes "Instalar iptables?"; then
+  if $REFRESH || $ASSUME_YES || ask_yes "Instalar iptables?"; then
     box_start "Instalação do iptables"
+    if $REFRESH; then
+      apt-get update 2>&1 | tee -a "$LOGFILE" || true
+    fi
     if ! apt-get install -y iptables 2>&1 | tee -a "$LOGFILE"; then
       error "Falha na instalação do iptables."
     else
@@ -779,7 +859,7 @@ else
     warn "Template 'systemd/easyphone-firewall.service.example' não encontrado; unit não instalado."
   elif ! command -v systemctl &>/dev/null; then
     warn "systemctl não disponível; unit de firewall não instalado."
-  elif ask_yes "Instalar o serviço que reaplica o firewall a cada boot (recomendado)?"; then
+  elif $REFRESH || $ASSUME_YES || ask_yes "Instalar o serviço que reaplica o firewall a cada boot (recomendado)?"; then
     box_start "Instalação do easyphone-firewall.service"
     sed "s|__FIREWALL_SCRIPT__|$FIREWALL_SCRIPT|g" \
       "$FIREWALL_UNIT_TEMPLATE" > "$FIREWALL_UNIT_PATH"
@@ -813,14 +893,14 @@ else
   fi
 
   # ── 4b. Aplica as regras agora ─────────────────────────────────────
-  if ask_yes "Aplicar regras de firewall padrão agora?"; then
+  if $REFRESH || $ASSUME_YES || ask_yes "Aplicar regras de firewall padrão agora?"; then
     APPLY_FIREWALL=true
     # Salvaguarda: com porta de gestão ≠ 22 o firewall passa a liberar APENAS
     # ela. Se o sshd ainda escutar na 22, aplicar as regras derruba o acesso.
     if [[ "${SSH_PORT:-22}" != "22" ]]; then
       warn "O firewall vai liberar APENAS a porta ${SSH_PORT} para acesso administrativo."
       warn "Confirme que o sshd JÁ escuta nela. Caso contrário você perderá o acesso ao servidor."
-      if ! ask_yes "O sshd já está escutando na porta ${SSH_PORT}. Aplicar as regras?"; then
+      if ! $REFRESH && ! $ASSUME_YES && ! ask_yes "O sshd já está escutando na porta ${SSH_PORT}. Aplicar as regras?"; then
         APPLY_FIREWALL=false
       fi
     fi
@@ -850,7 +930,7 @@ elif [[ ! -f "$WHITELIST_WATCH_INSTALLER" ]]; then
   warn "Instalador 'scripts/install-whitelist-watch.sh' não encontrado; watcher não instalado."
 elif ! command -v systemctl &>/dev/null; then
   warn "systemctl não disponível; watcher da whitelist não instalado."
-elif ask_yes "Instalar o serviço que reaplica a whitelist quando os containers sobem? (recomendado)"; then
+elif $REFRESH || $ASSUME_YES || ask_yes "Instalar o serviço que reaplica a whitelist quando os containers sobem? (recomendado)"; then
   box_start "Instalação do easyphone-whitelist-watch.service"
   if bash "$WHITELIST_WATCH_INSTALLER" 2>&1 | tee -a "$LOGFILE"; then
     ok "easyphone-whitelist-watch.service instalado e habilitado."
@@ -875,8 +955,11 @@ if docker compose version &>/dev/null; then
   ok "Docker Compose já está disponível: $(docker compose version 2>/dev/null)"
 else
   warn "Plugin 'docker compose' não encontrado."
-  if ask_yes "Instalar docker-compose-plugin?"; then
+  if $REFRESH || $ASSUME_YES || ask_yes "Instalar docker-compose-plugin?"; then
     box_start "Instalação do Docker Compose"
+    if $REFRESH; then
+      apt-get update 2>&1 | tee -a "$LOGFILE" || true
+    fi
     if ! apt-get install -y docker-compose-plugin 2>&1 | tee -a "$LOGFILE"; then
       error "Falha na instalação do docker-compose-plugin."
     else
@@ -888,7 +971,11 @@ else
 fi
 
 if docker compose version &>/dev/null; then
-  if ask_no "Fazer pull das imagens agora (docker compose pull)?"; then
+  if [[ "${USE_BUILD:-false}" == "true" && -f docker-compose.build.yml ]]; then
+    ok "USE_BUILD=true — pull das imagens ignorado."
+  elif $REFRESH || $ASSUME_YES; then
+    ok "Pull das imagens será feito pelo run.sh/update.sh."
+  elif ask_no "Fazer pull das imagens agora (docker compose pull)?"; then
     box_start "Pull das imagens Docker"
     docker compose pull 2>&1 | tee -a "$LOGFILE"
     ok "Imagens baixadas."
@@ -915,7 +1002,7 @@ else
   TERMINAL_LOGO_PROMPT="Instalar logo do EasyPhone no console e no MOTD do SSH?"
 fi
 
-if ask_yes "$TERMINAL_LOGO_PROMPT"; then
+if $REFRESH || $ASSUME_YES || ask_yes "$TERMINAL_LOGO_PROMPT"; then
   box_start "Instalação do logo no terminal"
   if bash "$REPO_DIR/scripts/banner-easyphone.sh" 2>&1 | tee -a "$LOGFILE"; then
     INSTALLED+=("banner-easyphone")

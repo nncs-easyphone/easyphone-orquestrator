@@ -63,12 +63,15 @@ tenant exista e que a service account esteja na whitelist.
 ## Aplicação em instalações existentes
 
 ```bash
-git pull
+cd /opt/easyphone-orquestrator
 docker compose pull docker-proxy host-info
 docker compose up -d docker-proxy host-info
 ```
 
 Somente o `docker-proxy` e o `host-info` são criados/recriados.
+
+Para atualizar também os arquivos do orquestrador, use
+`sudo bash scripts/update.sh`.
 
 ## Conferência
 

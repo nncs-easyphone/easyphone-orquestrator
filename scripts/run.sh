@@ -106,6 +106,7 @@ if [[ -z "${DNS_CHALLENGE_API_KEY:-}" ]]; then
     printf '\nDNS_CHALLENGE_API_KEY=%s\n' "$DNS_CHALLENGE_API_KEY" >> "$ENV_FILE"
   fi
 
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
   ok "API Key do DNS challenge gerada automaticamente."
 fi
 
@@ -122,12 +123,36 @@ if [[ -z "${ASTERISK_AMI_PASSWORD:-}" || "${ASTERISK_AMI_PASSWORD}" == "default-
     printf '\nASTERISK_AMI_PASSWORD=%s\n' "$ASTERISK_AMI_PASSWORD" >> "$ENV_FILE"
   fi
 
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
   ok "Credencial AMI/ARI gerada automaticamente."
 fi
 
 USE_BUILD="${USE_BUILD:-false}"
+chmod 600 "$ENV_FILE" 2>/dev/null || true
 
 cd "$REPO_DIR"
+
+# Em instalações gerenciadas o override de build não é distribuído. Um .env
+# antigo com USE_BUILD=true não pode impedir a stack de subir.
+if [[ "$USE_BUILD" == "true" && ! -f docker-compose.build.yml ]]; then
+  warn "USE_BUILD=true, mas docker-compose.build.yml não existe — usando as imagens do registry."
+  USE_BUILD=false
+fi
+
+# USE_BUILD=true é exclusivo de desenvolvimento: acrescenta o override que
+# recompila as imagens a partir dos repositórios irmãos.
+compose() {
+  if [[ "$USE_BUILD" == "true" ]]; then
+    local -a files=(-f docker-compose.yml -f docker-compose.build.yml)
+    # Compose auto-carrega docker-compose.override.yml quando chamado sem -f.
+    # No modo build os arquivos são explícitos, então o override precisa ser
+    # incluído à mão para manter o comportamento de antes.
+    [[ -f docker-compose.override.yml ]] && files+=(-f docker-compose.override.yml)
+    docker compose "${files[@]}" "$@"
+  else
+    docker compose "$@"
+  fi
+}
 
 # ─────────────────────────────────────────────────────────────────────
 #  ESTADO/LOGS DO BACKUP (bind mount em /app/states)
@@ -173,10 +198,10 @@ if [[ "$USE_BUILD" == "true" ]]; then
   info "USE_BUILD=true  → build local dos Dockerfiles"
 
   box_start "Build e inicialização da stack"
-  docker compose up -d 2>&1 | tee -a "$LOGFILE"
+  compose up -d 2>&1 | tee -a "$LOGFILE"
   echo ""
   info "Logs de inicialização:"
-  docker compose logs --tail=100 2>&1 | tee -a "$LOGFILE"
+  compose logs --tail=100 2>&1 | tee -a "$LOGFILE"
   box_end
 else
   info "USE_BUILD=false → imagens do registry"
@@ -190,15 +215,15 @@ else
   fi
 
   box_start "Pull das imagens"
-  docker compose pull 2>&1 | tee -a "$LOGFILE"
+  compose pull 2>&1 | tee -a "$LOGFILE"
   ok "Imagens baixadas."
   box_end
 
   box_start "Inicialização da stack"
-  docker compose up -d --no-build 2>&1 | tee -a "$LOGFILE"
+  compose up -d --no-build 2>&1 | tee -a "$LOGFILE"
   echo ""
   info "Logs de inicialização:"
-  docker compose logs --tail=100 2>&1 | tee -a "$LOGFILE"
+  compose logs --tail=100 2>&1 | tee -a "$LOGFILE"
   box_end
 fi
 
