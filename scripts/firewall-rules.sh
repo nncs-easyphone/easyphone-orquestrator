@@ -227,6 +227,9 @@ echo -e "  ${GREEN}✓${NC} TCP/5038 (DROP explícito para tráfego não-bridge)
 #     jump dele imediatamente ANTES dela — precisa que a chain já esteja na INPUT
 #     para calcular a posição. Sem whitelist.conf o script sai sem fazer nada, e
 #     uma falha dele (ex.: trava de lockout) não pode abortar o firewall.
+#     A EASYPHONE_WHITELIST aceita loopback e ESTABLISHED,RELATED na própria
+#     chain, então respostas de conexões de saída (apt/DNS) não dependem da
+#     posição da regra ESTABLISHED,RELATED da INPUT.
 WHITELIST_SCRIPT="$SCRIPT_DIR/whitelist-rules.sh"
 
 if [[ -f "$WHITELIST_SCRIPT" ]]; then

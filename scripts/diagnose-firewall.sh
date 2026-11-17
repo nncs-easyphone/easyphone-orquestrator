@@ -59,12 +59,12 @@ echo "Kernel: $(uname -r)"
 # ── 1. Firewalls concorrentes ────────────────────────────────────────
 section "1. Serviços de firewall no host"
 
-for unit in easyphone-firewall.service netfilter-persistent ufw firewalld; do
+for unit in easyphone-firewall.service easyphone-whitelist-watch.service netfilter-persistent ufw firewalld; do
   if systemctl list-unit-files 2>/dev/null | grep -q "^${unit%.service}"; then
     state="$(systemctl is-enabled "$unit" 2>/dev/null || echo desconhecido)"
     active="$(systemctl is-active "$unit" 2>/dev/null || echo inativo)"
     case "$unit" in
-      easyphone-firewall.service)
+      easyphone-firewall.service|easyphone-whitelist-watch.service)
         ok "$unit — enabled=$state active=$active  (é o serviço oficial do projeto)" ;;
       *)
         warn "$unit — enabled=$state active=$active  (pode conflitar com as chains EASYPHONE_*)" ;;
@@ -91,6 +91,7 @@ fi
 
 section "2. Últimas execuções do firewall oficial"
 run journalctl -u easyphone-firewall.service -n 30 --no-pager
+run journalctl -u easyphone-whitelist-watch.service -n 30 --no-pager
 
 # ── 3. Estado do netfilter ───────────────────────────────────────────
 section "3. Chain INPUT (ordem importa: whitelist tem que vir ANTES da EASYPHONE_INPUT)"
@@ -102,6 +103,27 @@ if iptables -n -L EASYPHONE_WHITELIST &>/dev/null; then
   if iptables -S EASYPHONE_WHITELIST 2>/dev/null | grep -q -- '-j RETURN.*-s\|-s.*-j RETURN'; then
     warn "Há origens com RETURN — versão antiga do script (origem ainda passava pelo filtro de portas)."
     warn "Rode 'sudo bash scripts/firewall-rules.sh' para aplicar a versão com ACCEPT (acesso total)."
+  fi
+  if iptables -S EASYPHONE_WHITELIST 2>/dev/null | grep -q -- '-m conntrack --ctstate .*ESTABLISHED'; then
+    ok "Whitelist aceita ESTABLISHED,RELATED — respostas de apt/DNS não são dropadas."
+  else
+    bad "EASYPHONE_WHITELIST sem ESTABLISHED,RELATED — respostas de conexões de saída podem ser dropadas."
+    bad "    Corrija com: sudo bash scripts/whitelist-rules.sh"
+  fi
+  if iptables -S EASYPHONE_WHITELIST 2>/dev/null | grep -q -- '-i lo -j ACCEPT'; then
+    ok "Whitelist aceita loopback."
+  else
+    warn "EASYPHONE_WHITELIST sem ACCEPT explícito para loopback."
+  fi
+
+  input_rules="$(iptables -L INPUT -n --line-numbers 2>/dev/null || true)"
+  wl_line="$(awk '$2 == "EASYPHONE_WHITELIST" { print $1; exit }' <<< "$input_rules")"
+  est_line="$(awk '/ctstate/ && /ESTABLISHED/ { print $1; exit }' <<< "$input_rules")"
+  if [[ -z "$est_line" ]]; then
+    warn "INPUT sem regra ESTABLISHED,RELATED; a whitelist cobre as respostas, mas reaplique scripts/firewall-rules.sh."
+  elif [[ -n "$wl_line" ]] && (( est_line > wl_line )); then
+    warn "Regra ESTABLISHED,RELATED da INPUT está depois da EASYPHONE_WHITELIST."
+    warn "A whitelist chain tem regra própria, mas reaplique scripts/firewall-rules.sh para limpar a ordem."
   fi
 else
   warn "Chain EASYPHONE_WHITELIST não existe — whitelist DESATIVADA (sem whitelist.conf)."

@@ -3,6 +3,9 @@
 # EasyPhone Orchestrator — Whitelist de origens (iptables)
 # Uso: sudo bash scripts/whitelist-rules.sh [--remove] [--force]
 #
+# Também é executado automaticamente pelo easyphone-whitelist-watch.service
+# quando containers easyphone-* sobem.
+#
 # Restringe POR ORIGEM o tráfego que chega na chain INPUT, usando uma chain
 # dedicada (EASYPHONE_WHITELIST) avaliada ANTES da EASYPHONE_INPUT:
 #
@@ -12,6 +15,19 @@
 #     3  icmp echo-request    → ACCEPT
 #     4  -j EASYPHONE_WHITELIST   ← este script: filtra por ORIGEM
 #     5  -j EASYPHONE_INPUT       ← firewall-rules.sh: filtra por PORTA
+#
+#   EASYPHONE_WHITELIST:
+#     -i lo                   → ACCEPT
+#     ESTABLISHED,RELATED     → ACCEPT
+#     -i br+                  → RETURN
+#     ALLOWED                 → ACCEPT
+#     LOG + DROP
+#
+# As regras de loopback e ESTABLISHED,RELATED são essenciais: respostas de
+# conexões iniciadas pelo host (apt, DNS, updates) chegam como ESTABLISHED ou
+# RELATED. Sem elas, se a regra equivalente da INPUT estiver ausente ou depois
+# do jump (instalação antiga/snapshot), o DROP no fim da chain derruba a
+# resposta e o apt parece "sair mas não voltar".
 #
 # ORIGEM PERMITIDA = ACESSO TOTAL. A chain devolve ACCEPT para os CIDRs do
 # ALLOWED: o pacote sai da INPUT ali mesmo e NÃO passa pelo filtro de portas da
@@ -79,6 +95,7 @@ LOG_PREFIX="EASYPHONE-WL-DROP: "
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 CONF_FILE="$ROOT_DIR/whitelist.conf"
+LOCK_FILE="${WHITELIST_LOCK_FILE:-/run/easyphone-whitelist.lock}"
 
 # remove_db_chain: desmonta a filtragem do Postgres publicada pelo Docker.
 # A porta é publicada por `ports:` (POSTGRES_BIND_ADDR), então o tráfego passa
@@ -160,6 +177,19 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# Serializa watcher, execuções manuais, run.sh e firewall-rules.sh.
+# Sem isso, duas execuções simultâneas podem esvaziar/reconstruir a chain
+# ao mesmo tempo e deixar o filtro em estado inconsistente.
+if command -v flock &>/dev/null; then
+  exec 9>"$LOCK_FILE" || { error "Não foi possível criar o lock ${LOCK_FILE}."; exit 1; }
+  if ! flock -w 30 9; then
+    error "Outra aplicação da whitelist está em andamento (lock ${LOCK_FILE})."
+    exit 1
+  fi
+else
+  warn "flock não encontrado; execuções concorrentes não serão serializadas."
+fi
+
 # ── Remoção ──────────────────────────────────────────────────────────
 if [[ "$MODE" == "remove" ]]; then
   while iptables -C INPUT -j "$WHITELIST_CHAIN" &>/dev/null; do
@@ -172,6 +202,12 @@ if [[ "$MODE" == "remove" ]]; then
   fi
 
   remove_db_chain
+
+  if command -v systemctl &>/dev/null && systemctl is-active --quiet easyphone-whitelist-watch.service 2>/dev/null; then
+    warn "O easyphone-whitelist-watch.service está ativo."
+    warn "Com whitelist.conf presente, a whitelist será reaplicada no próximo start de container."
+    warn "Para desativar de vez: sudo bash install-whitelist-watch.sh --remove"
+  fi
 
   ok "Whitelist removida — a INPUT voltou a aceitar qualquer origem nas portas do projeto."
   ok "Filtro de origem do Postgres publicado também removido."
@@ -251,14 +287,25 @@ fi
 iptables -N "$WHITELIST_CHAIN" 2>/dev/null || true
 iptables -F "$WHITELIST_CHAIN"
 
-# Bridges do Docker primeiro: api/seed alcançam AMI/ARI e o Traefik alcança o WSS
-# via host.docker.internal, e esse tráfego entra pela interface br-<hash>. Casar
-# pela interface cobre redes fora da faixa 172.16/14 (ex.: 172.20.x) e sobrevive
-# à recriação da rede — mesmo critério já usado na EASYPHONE_INPUT.
+# Loopback e conexões já estabelecidas/relacionadas são aceitas antes do filtro
+# por origem. Respostas de conexões iniciadas pelo próprio host (apt, DNS,
+# updates) chegam como ESTABLISHED ou RELATED; sem esta regra, o DROP no fim da
+# chain derruba a resposta quando a regra equivalente da INPUT está ausente ou
+# depois do jump (instalação antiga/snapshot). Isso torna a whitelist
+# autossuficiente e também protege a reaplicação automática via watcher.
+iptables -A "$WHITELIST_CHAIN" -i lo -j ACCEPT
+iptables -A "$WHITELIST_CHAIN" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+echo -e "  ${GREEN}✓${NC} loopback e respostas de conexões estabelecidas/related"
+
+# Bridges do Docker: api/seed alcançam AMI/ARI e o Traefik alcança o WSS via
+# host.docker.internal, e esse tráfego entra pela interface br-<hash>. Casar pela
+# interface cobre redes fora da faixa 172.16/14 (ex.: 172.20.x) e sobrevive à
+# recriação da rede — mesmo critério já usado na EASYPHONE_INPUT.
 #
-# Aqui é RETURN, não ACCEPT: os containers seguem restritos ao conjunto de portas
-# da EASYPHONE_INPUT (que já os libera para AMI/ARI/WSS via -i br+). Só as origens
-# explicitamente listadas no ALLOWED ganham acesso irrestrito.
+# Aqui é RETURN, não ACCEPT: conexões NOVAS vindas dos containers seguem
+# restritas ao conjunto de portas da EASYPHONE_INPUT (que já as libera para
+# AMI/ARI/WSS via -i br+). Só as origens explicitamente listadas no ALLOWED
+# ganham acesso irrestrito.
 iptables -A "$WHITELIST_CHAIN" -i br+ -j RETURN
 echo -e "  ${GREEN}✓${NC} bridges do Docker (-i br+, segue para o filtro de portas)"
 
@@ -272,7 +319,7 @@ done
 
 iptables -A "$WHITELIST_CHAIN" -m limit --limit 5/min -j LOG --log-prefix "$LOG_PREFIX"
 iptables -A "$WHITELIST_CHAIN" -j DROP
-ok "Chain $WHITELIST_CHAIN montada (${#ALLOWED[@]} origens + bridges do Docker)."
+ok "Chain $WHITELIST_CHAIN montada (${#ALLOWED[@]} origens + bridges + loopback/estabelecidas)."
 warn "As ${#ALLOWED[@]} origens do ALLOWED têm acesso a TODAS as portas do host (inclusive AMI/ARI/WSS)."
 
 # ── Posiciona o jump na INPUT ────────────────────────────────────────

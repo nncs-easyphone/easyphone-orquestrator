@@ -48,7 +48,7 @@ O script interativamente:
 | **1/7** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
 | **2/7** | Autentica no ghcr.io (valida o token com um pull real) |
 | **3/7** | Instala iptables |
-| **4/7** | Instala o serviço `easyphone-firewall` (único mecanismo de persistência: reaplica o firewall a cada boot, depois do Docker), desabilita firewalls concorrentes (`netfilter-persistent`, `ufw`) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
+| **4/7** | Instala o `easyphone-firewall` (reaplica as regras de porta a cada boot, depois do Docker) e o `easyphone-whitelist-watch` (reaplica a whitelist quando containers sobem), desabilita firewalls concorrentes (`netfilter-persistent`, `ufw`) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
 | **5/7** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
 | **6/7** | Pergunta se deseja instalar (ou reinstalar) o logo do EasyPhone no console (`/etc/issue`) e no MOTD do SSH (`/etc/update-motd.d/01-easyphone`) |
 
@@ -150,16 +150,21 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 
 | Arquivo | Descrição |
 |---|---|
-| `init.sh` | Script de provisionamento (Docker, ghcr, iptables, firewall, compose e logo do terminal) |
+| `init.sh` | Wrapper na raiz que chama `scripts/init.sh` — mantém o comando `sudo bash init.sh` |
 | `install-terminal-logo.sh` | Instala/reinstala o banner do console e o MOTD do SSH em máquinas que já rodaram o `init.sh` (`--console`, `--ssh` ou `--all`) |
-| `scripts/run.sh` | Script para subir a stack |
+| `install-whitelist-watch.sh` | Instala/reinstala o watcher da whitelist em máquinas que já rodaram o `init.sh` (`--remove` desativa o serviço) |
+| `scripts/init.sh` | Implementação do provisionamento (Docker, ghcr, iptables, firewall, watcher da whitelist, compose e logo do terminal) |
+| `scripts/run.sh` | Script para subir a stack e reaplicar a whitelist ao final, quando configurada |
 | `scripts/firewall-rules.sh` | Regras de firewall com chain dedicada `EASYPHONE_INPUT` |
-| `scripts/whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `scripts/firewall-rules.sh` |
+| `scripts/whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `scripts/firewall-rules.sh`; aceita loopback e `ESTABLISHED,RELATED` para não derrubar respostas de conexões de saída |
+| `scripts/whitelist-watch.sh` | Watcher systemd: escuta `docker events` (`start`/`restart`) dos containers `easyphone-*` e reaplica a whitelist com debounce e lock |
+| `scripts/install-whitelist-watch.sh` | Implementação do instalador do `easyphone-whitelist-watch.service` |
 | `scripts/diagnose-firewall.sh` | Diagnóstico somente leitura de firewall, Docker e rede |
 | `scripts/banner-easyphone.sh` | Instala o logo do EasyPhone no `/etc/issue` (login do console) |
 | `scripts/motd-easyphone.sh` | Instala o logo e o resumo do host no `/etc/update-motd.d/01-easyphone` (login via SSH) |
-| `run.sh`, `firewall-rules.sh`, `whitelist-rules.sh`, `diagnose-firewall.sh`, `banner-easyphone.sh`, `motd-easyphone.sh` | Wrappers de compatibilidade na raiz que chamam a implementação correspondente em `scripts/` |
+| `init.sh`, `run.sh`, `firewall-rules.sh`, `whitelist-rules.sh`, `diagnose-firewall.sh`, `banner-easyphone.sh`, `motd-easyphone.sh` | Wrappers na raiz que chamam a implementação correspondente em `scripts/` (mantêm os comandos antigos) |
 | `systemd/easyphone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
+| `systemd/easyphone-whitelist-watch.service.example` | Template do watcher que reaplica a whitelist em novos containers — o unit final é gerado pelo instalador |
 | `whitelist.conf.example` | Template da lista de origens permitidas — copie para `whitelist.conf` para ativar |
 | `.env` | Configuração de ambiente (copie de `.env.example`) |
 | `.env.example` | Template do ambiente |
@@ -289,6 +294,16 @@ docker compose logs -f api
 # Reaplicar regras de firewall
 sudo bash scripts/firewall-rules.sh
 
+# Reaplicar somente a whitelist de origens
+sudo bash scripts/whitelist-rules.sh
+
+# Reinstalar o watcher da whitelist
+sudo bash install-whitelist-watch.sh
+
+# Status e logs do watcher
+systemctl status easyphone-whitelist-watch
+journalctl -u easyphone-whitelist-watch -f
+
 # Reinstalar logo do EasyPhone no console e no SSH
 sudo bash install-terminal-logo.sh
 
@@ -346,7 +361,29 @@ cp whitelist.conf.example whitelist.conf
 sudo bash scripts/firewall-rules.sh
 ```
 
-A existência do `whitelist.conf` é o que ativa — sem ele o `scripts/whitelist-rules.sh` não faz nada. O `scripts/firewall-rules.sh` o encadeia automaticamente, então a whitelist também é reaplicada no boot pelo `easyphone-firewall.service`.
+A existência do `whitelist.conf` é o que ativa — sem ele o `scripts/whitelist-rules.sh` não faz nada. O `scripts/firewall-rules.sh` o encadeia automaticamente no boot. Além disso, o `easyphone-whitelist-watch.service` escuta os eventos `start`/`restart` dos containers `easyphone-*` e reaplica a whitelist sempre que a stack sobe. Sem `whitelist.conf`, o watcher fica ocioso e não loga.
+
+### Reaplicação automática
+
+O watcher usa `docker events` com debounce de ~2s e um lock em `/run/easyphone-whitelist.lock`, então um `docker compose up -d` com vários containers gera uma única reaplicação. Ele também aplica a whitelist uma vez ao iniciar e após reconexão com o Docker (restart do daemon).
+
+Em máquinas já provisionadas:
+
+```bash
+# Instalar/reinstalar e iniciar o watcher
+sudo bash install-whitelist-watch.sh
+
+# Status e logs
+systemctl status easyphone-whitelist-watch
+journalctl -u easyphone-whitelist-watch -f
+
+# Desativar o watcher (não remove as regras de iptables)
+sudo bash install-whitelist-watch.sh --remove
+```
+
+O `init.sh` instala o watcher na etapa **4/7** (pergunta com padrão sim). O `scripts/run.sh` também reaplica a whitelist ao final do `docker compose up` para aplicação imediata; o watcher cobre os demais caminhos (`docker compose up` manual, `restart`, `docker start` e restarts automáticos).
+
+> ⚠️ O watcher roda como root e aplica o `whitelist.conf` **sem** a checagem de origem do SSH feita pelo modo manual. Antes de confiar apenas nele, valide a lista com `sudo bash scripts/whitelist-rules.sh` para garantir que o seu IP de administração está incluído.
 
 **Como funciona.** Uma chain `EASYPHONE_WHITELIST` é avaliada **antes** da `EASYPHONE_INPUT`: a primeira filtra por **origem**, a segunda por **porta**.
 
@@ -357,13 +394,22 @@ INPUT (policy DROP)
   3  icmp echo-request    → ACCEPT
   4  -j EASYPHONE_WHITELIST   ← origem do ALLOWED faz ACCEPT; o resto vai para LOG + DROP
   5  -j EASYPHONE_INPUT       ← filtro por porta (só para quem não é do ALLOWED)
+
+EASYPHONE_WHITELIST:
+  -i lo                    → ACCEPT
+  ESTABLISHED,RELATED      → ACCEPT
+  -i br+                   → RETURN (containers novos seguem para EASYPHONE_INPUT)
+  ALLOWED                  → ACCEPT
+  LOG + DROP
 ```
+
+As regras de `loopback` e `ESTABLISHED,RELATED` na própria whitelist são essenciais: respostas de conexões iniciadas pelo host (`apt`, DNS, atualizações) chegam como `ESTABLISHED`/`RELATED`. Sem elas, se a regra equivalente da `INPUT` estiver ausente ou depois do jump (instalação antiga ou snapshot restaurado), o `DROP` no fim da chain derruba a resposta e o `apt` parece “sair mas não voltar”.
 
 **⚠️ Origem no `ALLOWED` = acesso total.** A chain faz `ACCEPT`, então esses IPs saem da INPUT ali mesmo e **não** passam pelo filtro de portas: alcançam qualquer porta do host, inclusive AMI (5038), ARI (8088) e WSS (8089). O PgBouncer fica em loopback. O Postgres fica em loopback por padrão, mas quando publicado externamente (`POSTGRES_BIND_ADDR=0.0.0.0`) a whitelist também é aplicada a ele na `DOCKER-USER` (chain `EASYPHONE_DB`). Para as origens do `ALLOWED`, a proteção do AMI passa a ser apenas a ACL do `manager.conf`.
 
 Isso é deliberado. A `EASYPHONE_INPUT` libera um conjunto fixo de portas (a porta de gestão `SSH_PORT` — 22 por padrão —, 80, 443, 5061, 3478, 5349, UDP 5060 e as faixas de RTP/TURN) e **não** cobre SIP em TCP/5060 nem portas 50xx alternativas — com `RETURN`, um tronco já presente na whitelist continuava sendo descartado por falar numa porta fora dessa lista, uma falha silenciosa e difícil de diagnosticar. Trate o `whitelist.conf` como lista de **hosts confiáveis**, não como filtro de borda.
 
-As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem restritos às portas da `EASYPHONE_INPUT`.
+Para conexões novas, as bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem restritos às portas da `EASYPHONE_INPUT`.
 
 **O que a whitelist NÃO alcança:** as portas 80/443 do Traefik. Tráfego de container publicado não passa pela INPUT — vai por `nat/PREROUTING` → `FORWARD` → chains `DOCKER-*`. `app.`, `api.` e o desafio TLS do Let's Encrypt seguem abertos ao mundo, de propósito. A exceção é o Postgres publicado: ele também passa por `DOCKER-USER`, e o `scripts/whitelist-rules.sh` aplica a lista na chain `EASYPHONE_DB`.
 
@@ -380,9 +426,13 @@ sudo iptables -L EASYPHONE_WHITELIST -n -v --line-numbers
 sudo iptables -L EASYPHONE_DB -n -v --line-numbers
 sudo journalctl -k | grep EASYPHONE-WL-DROP
 
-# Desfazer
+# Desfazer: desative o watcher primeiro; com whitelist.conf presente ele
+# reaplicaria a whitelist no próximo start de container.
+sudo bash install-whitelist-watch.sh --remove
 sudo bash scripts/whitelist-rules.sh --remove
 ```
+
+> ⚠️ Apagar apenas o `whitelist.conf` não remove as regras atuais: o watcher fica ocioso, mas a chain existente continua até um `--remove` manual.
 
 ## Solução de problemas
 
@@ -395,6 +445,36 @@ sudo bash scripts/diagnose-firewall.sh > diagnostico-$(date +%F-%H%M).txt
 ```
 
 O script é **somente leitura**. Ele verifica firewalls concorrentes, a integridade das chains `DOCKER-*` e `EASYPHONE_*`, a ocupação da tabela de conntrack, os bloqueios registrados no kernel e o estado do PJSIP. Se o problema for intermitente, colete também **durante** a queda e compare as duas saídas.
+
+### `apt update`/DNS/curl saem mas não recebem resposta com whitelist ativa
+
+Sintoma clássico: a requisição sai, mas a resposta não volta; durante o `apt update`, o contador da regra de `DROP` da whitelist sobe. A causa é a whitelist terminar em `DROP` sem aceitar `ESTABLISHED,RELATED` — ou a regra equivalente da `INPUT` estar ausente/depois do jump (instalação antiga ou snapshot restaurado).
+
+Confira a ordem e os contadores:
+
+```bash
+sudo iptables -L INPUT -n -v --line-numbers
+sudo iptables -L EASYPHONE_WHITELIST -n -v --line-numbers
+sudo iptables -S EASYPHONE_WHITELIST
+```
+
+A versão atual da chain deve mostrar, antes do `DROP` (o `iptables -S` pode exibir os estados como `RELATED,ESTABLISHED`):
+
+```
+-A EASYPHONE_WHITELIST -i lo -j ACCEPT
+-A EASYPHONE_WHITELIST -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+-A EASYPHONE_WHITELIST -i br+ -j RETURN
+```
+
+Se não aparecerem, reaplique:
+
+```bash
+sudo bash scripts/whitelist-rules.sh
+# ou, para reaplicar também as regras de porta:
+sudo bash scripts/firewall-rules.sh
+```
+
+O `scripts/diagnose-firewall.sh` aponta automaticamente quando a whitelist está sem essas regras.
 
 ### Tudo cai (web, SIP e SSH) e só volta reiniciando o Docker
 
@@ -443,14 +523,14 @@ bash scripts/firewall-rules.sh    # recria a EASYPHONE_INPUT e o jump da INPUT
 docker compose up -d
 ```
 
-**Se o problema voltar após um reboot**, confira se algum mecanismo de snapshot ficou ativo (instalações antigas): o `iptables-restore` do boot flusha a tabela antes de aplicar `/etc/iptables/rules.v4` e apaga as chains do Docker. O projeto **não usa mais snapshot** — o `easyphone-firewall.service` é o único mecanismo de persistência e o `init.sh` (etapa 4/7) desabilita o `netfilter-persistent`:
+**Se o problema voltar após um reboot**, confira se algum mecanismo de snapshot ficou ativo (instalações antigas): o `iptables-restore` do boot flusha a tabela antes de aplicar `/etc/iptables/rules.v4` e apaga as chains do Docker. O projeto **não usa mais snapshot** — o `easyphone-firewall.service` é o único mecanismo de persistência das regras de porta, e a whitelist também é reaplicada em novos containers pelo `easyphone-whitelist-watch.service`. O `init.sh` (etapa 4/7) desabilita o `netfilter-persistent`:
 
 ```bash
 systemctl is-enabled easyphone-firewall         # deve estar "enabled"
 systemctl disable netfilter-persistent          # legado; o init.sh já desabilita
 ```
 
-O `easyphone-firewall.service` roda depois do `docker.service` e reaplica o `scripts/firewall-rules.sh` a cada boot.
+O `easyphone-firewall.service` roda depois do `docker.service` e reaplica o `scripts/firewall-rules.sh` a cada boot. A whitelist de origens também é reaplicada pelo `easyphone-whitelist-watch.service` sempre que containers `easyphone-*` sobem.
 
 ### ⚠️ Nunca rode `iptables -F` neste host
 

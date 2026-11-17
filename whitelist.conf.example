@@ -7,6 +7,10 @@
 #   cp whitelist.conf.example whitelist.conf
 #   sudo bash scripts/firewall-rules.sh
 #
+# Após editar, reaplique manualmente ou deixe o easyphone-whitelist-watch.service
+# aplicar no próximo start de container:
+#   sudo bash scripts/whitelist-rules.sh
+#
 # ⚠️ ORIGEM LISTADA AQUI = ACESSO TOTAL AO HOST. A chain EASYPHONE_WHITELIST faz
 # ACCEPT para estes CIDRs, então eles NÃO passam pelo filtro de portas da
 # EASYPHONE_INPUT: alcançam qualquer porta, inclusive AMI (5038), ARI (8088),

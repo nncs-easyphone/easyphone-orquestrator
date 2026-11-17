@@ -202,6 +202,22 @@ else
   box_end
 fi
 
+# Reaplica a whitelist de origens, se configurada. O watcher systemd cobre os
+# demais caminhos (compose up manual, restart, docker start); aqui garantimos
+# aplicação imediata no fluxo documentado do run.sh.
+if [[ -f "$REPO_DIR/whitelist.conf" ]]; then
+  if [[ ! -f "$REPO_DIR/scripts/whitelist-rules.sh" ]]; then
+    warn "scripts/whitelist-rules.sh não encontrado; whitelist não reaplicada."
+  elif [[ "$(id -u)" -eq 0 ]]; then
+    info "Reaplicando a whitelist de origens…"
+    if ! bash "$REPO_DIR/scripts/whitelist-rules.sh" 2>&1 | tee -a "$LOGFILE"; then
+      warn "Falha ao reaplicar a whitelist; a stack segue em execução."
+    fi
+  else
+    warn "Whitelist não reaplicada: rode 'sudo bash scripts/whitelist-rules.sh'."
+  fi
+fi
+
 ok "Stack EasyPhone iniciada."
 echo
 PG_BIND="${POSTGRES_BIND_ADDR:-127.0.0.1}"
