@@ -225,7 +225,7 @@ box_end
 # ─────────────────────────────────────────────────────────────────────
 #  0. CONFIGURAÇÃO DE AMBIENTE (.env)
 # ─────────────────────────────────────────────────────────────────────
-step "0/6 — Configuração de Ambiente (.env)"
+step "0/7 — Configuração de Ambiente (.env)"
 
 ENV_FILE="$(dirname "$(readlink -f "$0")")/.env"
 ENV_EXAMPLE="$(dirname "$(readlink -f "$0")")/.env.example"
@@ -293,7 +293,7 @@ if $CONFIG_ENABLED; then
   fi
 
   # ── Porta de gestão (SSH) ──
-  # Gravada no .env e usada pelo firewall-rules.sh (inclusive no boot) para
+  # Gravada no .env e usada por scripts/firewall-rules.sh (inclusive no boot) para
   # liberar o acesso administrativo. O sshd NÃO é alterado por este script.
   if ask_yes "Configurar a porta de gestão do servidor (SSH)?"; then
     box_start "Porta de gestão (SSH)"
@@ -552,7 +552,7 @@ fi
 # Rodam SEMPRE (não só na primeira execução): instalações que já tinham .env
 # também precisam do proxy WSS e do turnserver.conf, e ambos precisam ser
 # regerados quando o domínio ou a senha do Coturn mudam.
-step "0b/6 — Configuração gerada (Traefik WSS + Coturn)"
+step "0b/7 — Configuração gerada (Traefik WSS + Coturn)"
 
 ROOT_DIR="$REPO_DIR"
 
@@ -606,7 +606,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  1. DOCKER
 # ─────────────────────────────────────────────────────────────────────
-step "1/6 — Docker Engine"
+step "1/7 — Docker Engine"
 
 if command -v docker &>/dev/null; then
   ok "Docker já está instalado: $(docker --version 2>/dev/null)"
@@ -665,7 +665,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  2. GHCR LOGIN
 # ─────────────────────────────────────────────────────────────────────
-step "2/6 — GitHub Container Registry (ghcr.io)"
+step "2/7 — GitHub Container Registry (ghcr.io)"
 
 if ! command -v docker &>/dev/null; then
   warn "Docker não está disponível. Faça o login manual depois com:"
@@ -725,7 +725,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  3. IPTABLES
 # ─────────────────────────────────────────────────────────────────────
-step "3/6 — iptables"
+step "3/7 — iptables"
 
 IPTABLES_INSTALLED=false
 
@@ -754,14 +754,14 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  4. FIREWALL RULES
 # ─────────────────────────────────────────────────────────────────────
-step "4/6 — Regras de Firewall"
+step "4/7 — Regras de Firewall"
 
-FIREWALL_SCRIPT="$REPO_DIR/firewall-rules.sh"
+FIREWALL_SCRIPT="$REPO_DIR/scripts/firewall-rules.sh"
 FIREWALL_UNIT_TEMPLATE="$REPO_DIR/systemd/easyphone-firewall.service.example"
 FIREWALL_UNIT_PATH="/etc/systemd/system/easyphone-firewall.service"
 
 if [[ ! -f "$FIREWALL_SCRIPT" ]]; then
-  warn "Arquivo 'firewall-rules.sh' não encontrado ao lado do init.sh."
+  warn "Arquivo 'scripts/firewall-rules.sh' não encontrado ao lado do init.sh."
   warn "Crie-o ou copie-o para '$FIREWALL_SCRIPT' antes de aplicar as regras."
 elif ! $IPTABLES_INSTALLED; then
   warn "iptables não está instalado; não é possível aplicar regras de firewall."
@@ -829,11 +829,11 @@ else
       INSTALLED+=("firewall-rules")
     else
       echo "  → Regras de firewall não aplicadas."
-      echo "  → Ajuste o sshd e rode: sudo bash firewall-rules.sh"
+      echo "  → Ajuste o sshd e rode: sudo bash scripts/firewall-rules.sh"
     fi
   else
     echo "  → Regras de firewall não aplicadas."
-    echo "  → Execute manualmente quando quiser: sudo bash firewall-rules.sh"
+    echo "  → Execute manualmente quando quiser: sudo bash scripts/firewall-rules.sh"
   fi
 fi
 
@@ -842,7 +842,7 @@ divider
 # ─────────────────────────────────────────────────────────────────────
 #  5. DOCKER COMPOSE  (plugin)
 # ─────────────────────────────────────────────────────────────────────
-step "5/6 — Docker Compose"
+step "5/7 — Docker Compose"
 
 if docker compose version &>/dev/null; then
   ok "Docker Compose já está disponível: $(docker compose version 2>/dev/null)"
@@ -868,6 +868,42 @@ if docker compose version &>/dev/null; then
     box_end
   fi
 
+fi
+
+divider
+
+# ─────────────────────────────────────────────────────────────────────
+#  6. LOGO NO TERMINAL (banner do console + MOTD do SSH)
+# ─────────────────────────────────────────────────────────────────────
+step "6/7 — Logo do EasyPhone no terminal"
+
+TERMINAL_LOGO_INSTALLED=false
+if [[ -f /etc/issue.orig && -f /etc/update-motd.d/01-easyphone ]]; then
+  TERMINAL_LOGO_INSTALLED=true
+fi
+
+if $TERMINAL_LOGO_INSTALLED; then
+  TERMINAL_LOGO_PROMPT="Logo do EasyPhone já instalado. Reinstalar/atualizar banner do console e MOTD do SSH?"
+else
+  TERMINAL_LOGO_PROMPT="Instalar logo do EasyPhone no console e no MOTD do SSH?"
+fi
+
+if ask_yes "$TERMINAL_LOGO_PROMPT"; then
+  box_start "Instalação do logo no terminal"
+  if bash "$REPO_DIR/scripts/banner-easyphone.sh" 2>&1 | tee -a "$LOGFILE"; then
+    INSTALLED+=("banner-easyphone")
+  else
+    warn "Falha ao instalar o banner do console."
+  fi
+  if bash "$REPO_DIR/scripts/motd-easyphone.sh" 2>&1 | tee -a "$LOGFILE"; then
+    INSTALLED+=("motd-easyphone")
+  else
+    warn "Falha ao instalar o MOTD do SSH."
+  fi
+  box_end
+else
+  echo "  → Logo do terminal não instalado."
+  echo "  → Para instalar depois: sudo bash install-terminal-logo.sh"
 fi
 
 divider
@@ -901,7 +937,8 @@ echo -e "  ${BOLD}Comandos úteis:${NC}"
 echo -e "    ${BLUE}▶${NC} Subir a stack:         ${BOLD}docker compose up -d${NC}"
 echo -e "    ${BLUE}▶${NC} Parar a stack:          ${BOLD}docker compose down${NC}"
 echo -e "    ${BLUE}▶${NC} Ver logs:               ${BOLD}docker compose logs -f${NC}"
-echo -e "    ${BLUE}▶${NC} Reaplicar firewall:     ${BOLD}sudo bash firewall-rules.sh${NC}"
+echo -e "    ${BLUE}▶${NC} Reaplicar firewall:     ${BOLD}sudo bash scripts/firewall-rules.sh${NC}"
+echo -e "    ${BLUE}▶${NC} Reinstalar logo:        ${BOLD}sudo bash install-terminal-logo.sh${NC}"
 echo -e "    ${BLUE}▶${NC} Conferir porta SSH:     ${BOLD}sudo iptables -S EASYPHONE_INPUT | grep \"dport ${SSH_PORT:-22} \"${NC}"
 echo
 echo -e "${BOLD}${BLUE}═══════════════════  LOG COMPLETO  ═══════════════════${NC}"

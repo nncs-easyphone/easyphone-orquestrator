@@ -43,23 +43,24 @@ O script interativamente:
 
 | Etapa | O que faz |
 |---|---|
-| **0/6** | Configura o arquivo `.env` com perguntas sobre domínio, email Let's Encrypt, porta de gestão (SSH), Postgres, API, Coturn, Asterisk e Firebase |
-| **0b/6** | Gera `traefik/conf/wss.yml` e `coturn/turnserver.conf` a partir dos templates `.example`, substituindo domínio e credenciais do `.env` |
-| **1/6** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
-| **2/6** | Autentica no ghcr.io (valida o token com um pull real) |
-| **3/6** | Instala iptables |
-| **4/6** | Instala o serviço `easyphone-firewall` (único mecanismo de persistência: reaplica o firewall a cada boot, depois do Docker), desabilita firewalls concorrentes (`netfilter-persistent`, `ufw`) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
-| **5/6** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
+| **0/7** | Configura o arquivo `.env` com perguntas sobre domínio, email Let's Encrypt, porta de gestão (SSH), Postgres, API, Coturn, Asterisk e Firebase |
+| **0b/7** | Gera `traefik/conf/wss.yml` e `coturn/turnserver.conf` a partir dos templates `.example`, substituindo domínio e credenciais do `.env` |
+| **1/7** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
+| **2/7** | Autentica no ghcr.io (valida o token com um pull real) |
+| **3/7** | Instala iptables |
+| **4/7** | Instala o serviço `easyphone-firewall` (único mecanismo de persistência: reaplica o firewall a cada boot, depois do Docker), desabilita firewalls concorrentes (`netfilter-persistent`, `ufw`) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
+| **5/7** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
+| **6/7** | Pergunta se deseja instalar (ou reinstalar) o logo do EasyPhone no console (`/etc/issue`) e no MOTD do SSH (`/etc/update-motd.d/01-easyphone`) |
 
-> **Importante:** Na etapa 0/6, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
+> **Importante:** Na etapa 0/7, altere `JWT_SECRET`, `DATA_SECRET_CRYPTOGRAPHY_KEY` e a senha do banco (`POSTGRES_PASSWORD`) para valores seguros — o script já sugere valores aleatórios.
 
-> **DNS do Traefik:** na etapa 0/6 o `init.sh` pergunta os dois servidores DNS usados pelo container do Traefik (`DNS_SERVER_1`/`DNS_SERVER_2`, padrão `8.8.8.8`/`1.1.1.1`). Isso afeta apenas a resolução externa do Traefik — a resolução de nomes de serviço do Docker (embedded DNS) não muda.
+> **DNS do Traefik:** na etapa 0/7 o `init.sh` pergunta os dois servidores DNS usados pelo container do Traefik (`DNS_SERVER_1`/`DNS_SERVER_2`, padrão `8.8.8.8`/`1.1.1.1`). Isso afeta apenas a resolução externa do Traefik — a resolução de nomes de serviço do Docker (embedded DNS) não muda.
 >
-> **AMI/ARI:** o `init.sh`/`run.sh` gera `ASTERISK_AMI_PASSWORD` automaticamente no `.env`; a mesma credencial é renderizada em `manager.conf`/`ari.conf` e usada por seed/API.
+> **AMI/ARI:** o `init.sh`/`scripts/run.sh` gera `ASTERISK_AMI_PASSWORD` automaticamente no `.env`; a mesma credencial é renderizada em `manager.conf`/`ari.conf` e usada por seed/API.
 >
-> **DNS challenge:** o `init.sh`/`run.sh` gera `DNS_CHALLENGE_API_KEY` automaticamente no `.env`. O compose injeta a mesma chave na API e na URL `HTTPREQ_ENDPOINT` do Traefik; não há configuração em dois lugares.
+> **DNS challenge:** o `init.sh`/`scripts/run.sh` gera `DNS_CHALLENGE_API_KEY` automaticamente no `.env`. O compose injeta a mesma chave na API e na URL `HTTPREQ_ENDPOINT` do Traefik; não há configuração em dois lugares.
 
-> **Porta de gestão (SSH):** na etapa 0/6 o `init.sh` pergunta a porta de gestão (padrão `22`) e grava em `SSH_PORT` no `.env`. O firewall libera **apenas** essa porta — inclusive no boot (via `easyphone-firewall.service`). O script **não** altera o `sshd`: se você escolher uma porta diferente de 22, configure antes o `/etc/ssh/sshd_config.d/` (`Port <SSH_PORT>`, valide com `sshd -t && systemctl restart ssh`) ou você perderá o acesso. O `diagnose-firewall.sh` compara a porta liberada no firewall com a que o `sshd` escuta e avisa em caso de divergência.
+> **Porta de gestão (SSH):** na etapa 0/7 o `init.sh` pergunta a porta de gestão (padrão `22`) e grava em `SSH_PORT` no `.env`. O firewall libera **apenas** essa porta — inclusive no boot (via `easyphone-firewall.service`). O script **não** altera o `sshd`: se você escolher uma porta diferente de 22, configure antes o `/etc/ssh/sshd_config.d/` (`Port <SSH_PORT>`, valide com `sshd -t && systemctl restart ssh`) ou você perderá o acesso. O `scripts/diagnose-firewall.sh` compara a porta liberada no firewall com a que o `sshd` escuta e avisa em caso de divergência.
 
 ### Pré-requisito: Token GHCR
 
@@ -81,7 +82,7 @@ arquivos não são versionados (ver `.gitignore`).
 ## 3. Suba a stack
 
 ```bash
-bash run.sh
+bash scripts/run.sh
 ```
 
 Ou, se pulou essa etapa no `init.sh`:
@@ -149,11 +150,16 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 
 | Arquivo | Descrição |
 |---|---|
-| `init.sh` | Script de provisionamento (Docker, ghcr, iptables, firewall, compose) |
-| `run.sh` | Script para subir a stack |
-| `firewall-rules.sh` | Regras de firewall com chain dedicada `EASYPHONE_INPUT` |
+| `init.sh` | Script de provisionamento (Docker, ghcr, iptables, firewall, compose e logo do terminal) |
+| `install-terminal-logo.sh` | Instala/reinstala o banner do console e o MOTD do SSH em máquinas que já rodaram o `init.sh` (`--console`, `--ssh` ou `--all`) |
+| `scripts/run.sh` | Script para subir a stack |
+| `scripts/firewall-rules.sh` | Regras de firewall com chain dedicada `EASYPHONE_INPUT` |
+| `scripts/whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `scripts/firewall-rules.sh` |
+| `scripts/diagnose-firewall.sh` | Diagnóstico somente leitura de firewall, Docker e rede |
+| `scripts/banner-easyphone.sh` | Instala o logo do EasyPhone no `/etc/issue` (login do console) |
+| `scripts/motd-easyphone.sh` | Instala o logo e o resumo do host no `/etc/update-motd.d/01-easyphone` (login via SSH) |
+| `run.sh`, `firewall-rules.sh`, `whitelist-rules.sh`, `diagnose-firewall.sh`, `banner-easyphone.sh`, `motd-easyphone.sh` | Wrappers de compatibilidade na raiz que chamam a implementação correspondente em `scripts/` |
 | `systemd/easyphone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
-| `whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `firewall-rules.sh` |
 | `whitelist.conf.example` | Template da lista de origens permitidas — copie para `whitelist.conf` para ativar |
 | `.env` | Configuração de ambiente (copie de `.env.example`) |
 | `.env.example` | Template do ambiente |
@@ -164,6 +170,60 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | `docker-proxy/haproxy.cfg.template` | Allowlist exata do Docker: somente `GET /version`, `/containers/json`, `/containers/{id}/json` e `/images/json` |
 | `VERSION` | Versão do orquestrador enviada no relatório de monitoramento |
 | `doc/monitoramento.md` | Contrato do `system-report.json`, campos coletados e diagnóstico |
+
+## Logo no terminal (opcional)
+
+A etapa **6/7** do `init.sh` pergunta se deseja instalar (ou reinstalar) a
+identidade visual do EasyPhone no terminal:
+
+- **Console/TTY** — banner em `/etc/issue`, exibido antes do login local
+  (Ctrl+Alt+F1). O instalador guarda o original em `/etc/issue.orig`.
+- **SSH/MOTD** — logo e resumo do host em
+  `/etc/update-motd.d/01-easyphone`, exibido após o login via SSH. O instalador
+  também desativa as mensagens padrão do Ubuntu/Debian (`00-header`,
+  `10-help-text`, `10-uname`, `50-motd-news`, `50-landscape-sysinfo`) para não
+  poluir a tela.
+
+Em máquinas que já passaram pelo `init.sh`, instale ou reinstale sem refazer o
+provisionamento:
+
+```bash
+# Banner do console + MOTD do SSH
+sudo bash install-terminal-logo.sh
+
+# Apenas um dos dois
+sudo bash install-terminal-logo.sh --console
+sudo bash install-terminal-logo.sh --ssh
+```
+
+Os scripts também podem ser chamados diretamente:
+
+```bash
+sudo bash scripts/banner-easyphone.sh
+sudo bash scripts/motd-easyphone.sh
+```
+
+Para ver o MOTD sem sair da sessão:
+
+```bash
+/etc/update-motd.d/01-easyphone
+```
+
+Para desfazer:
+
+```bash
+sudo cp /etc/issue.orig /etc/issue
+sudo rm -f /etc/update-motd.d/01-easyphone
+# Opcional: reativar as mensagens padrão do Ubuntu
+sudo chmod +x /etc/update-motd.d/00-header \
+              /etc/update-motd.d/10-help-text \
+              /etc/update-motd.d/10-uname \
+              /etc/update-motd.d/50-motd-news \
+              /etc/update-motd.d/50-landscape-sysinfo 2>/dev/null || true
+```
+
+O banner do console só aparece em um TTY local (não em sessões SSH), e o MOTD
+aparece em novos logins SSH.
 
 ## Monitoramento da instalação
 
@@ -227,7 +287,10 @@ docker compose logs -f
 docker compose logs -f api
 
 # Reaplicar regras de firewall
-sudo bash firewall-rules.sh
+sudo bash scripts/firewall-rules.sh
+
+# Reinstalar logo do EasyPhone no console e no SSH
+sudo bash install-terminal-logo.sh
 
 # Executar init novamente (já instalado, apenas configura)
 sudo bash init.sh
@@ -252,7 +315,7 @@ docker compose up -d postgres
 
 O `docker compose up` já aplica o novo bind (o volume `easyphone_pgdata` é preservado).
 
-- Com `whitelist.conf` ativo, a porta `7001` é filtrada pela mesma lista de origens (`DOCKER-USER`, chain `EASYPHONE_DB`). Rode `sudo bash firewall-rules.sh` uma vez após atualizar o repositório para instalar essa chain; depois disso, alternar a env não exige reaplicar o firewall.
+- Com `whitelist.conf` ativo, a porta `7001` é filtrada pela mesma lista de origens (`DOCKER-USER`, chain `EASYPHONE_DB`). Rode `sudo bash scripts/firewall-rules.sh` uma vez após atualizar o repositório para instalar essa chain; depois disso, alternar a env não exige reaplicar o firewall.
 - Sem `whitelist.conf`, a porta fica aberta a qualquer origem, como as demais portas públicas.
 
 Conexão:
@@ -280,10 +343,10 @@ Por padrão as portas do projeto ficam abertas a qualquer origem. Para restringi
 ```bash
 cp whitelist.conf.example whitelist.conf
 # revise a lista ANTES de aplicar
-sudo bash firewall-rules.sh
+sudo bash scripts/firewall-rules.sh
 ```
 
-A existência do `whitelist.conf` é o que ativa — sem ele o `whitelist-rules.sh` não faz nada. O `firewall-rules.sh` o encadeia automaticamente, então a whitelist também é reaplicada no boot pelo `easyphone-firewall.service`.
+A existência do `whitelist.conf` é o que ativa — sem ele o `scripts/whitelist-rules.sh` não faz nada. O `scripts/firewall-rules.sh` o encadeia automaticamente, então a whitelist também é reaplicada no boot pelo `easyphone-firewall.service`.
 
 **Como funciona.** Uma chain `EASYPHONE_WHITELIST` é avaliada **antes** da `EASYPHONE_INPUT`: a primeira filtra por **origem**, a segunda por **porta**.
 
@@ -302,7 +365,7 @@ Isso é deliberado. A `EASYPHONE_INPUT` libera um conjunto fixo de portas (a por
 
 As bridges do Docker (`-i br+`) continuam com `RETURN`: os containers seguem restritos às portas da `EASYPHONE_INPUT`.
 
-**O que a whitelist NÃO alcança:** as portas 80/443 do Traefik. Tráfego de container publicado não passa pela INPUT — vai por `nat/PREROUTING` → `FORWARD` → chains `DOCKER-*`. `app.`, `api.` e o desafio TLS do Let's Encrypt seguem abertos ao mundo, de propósito. A exceção é o Postgres publicado: ele também passa por `DOCKER-USER`, e o `whitelist-rules.sh` aplica a lista na chain `EASYPHONE_DB`.
+**O que a whitelist NÃO alcança:** as portas 80/443 do Traefik. Tráfego de container publicado não passa pela INPUT — vai por `nat/PREROUTING` → `FORWARD` → chains `DOCKER-*`. `app.`, `api.` e o desafio TLS do Let's Encrypt seguem abertos ao mundo, de propósito. A exceção é o Postgres publicado: ele também passa por `DOCKER-USER`, e o `scripts/whitelist-rules.sh` aplica a lista na chain `EASYPHONE_DB`.
 
 **Antes de ativar, confira que a lista cobre:**
 
@@ -318,7 +381,7 @@ sudo iptables -L EASYPHONE_DB -n -v --line-numbers
 sudo journalctl -k | grep EASYPHONE-WL-DROP
 
 # Desfazer
-sudo bash whitelist-rules.sh --remove
+sudo bash scripts/whitelist-rules.sh --remove
 ```
 
 ## Solução de problemas
@@ -328,7 +391,7 @@ sudo bash whitelist-rules.sh --remove
 Antes de mexer em qualquer regra, colete o estado do host:
 
 ```bash
-sudo bash diagnose-firewall.sh > diagnostico-$(date +%F-%H%M).txt
+sudo bash scripts/diagnose-firewall.sh > diagnostico-$(date +%F-%H%M).txt
 ```
 
 O script é **somente leitura**. Ele verifica firewalls concorrentes, a integridade das chains `DOCKER-*` e `EASYPHONE_*`, a ocupação da tabela de conntrack, os bloqueios registrados no kernel e o estado do PJSIP. Se o problema for intermitente, colete também **durante** a queda e compare as duas saídas.
@@ -348,7 +411,7 @@ ls -l /opt/easyphone/firewall/ 2>/dev/null     # resíduo de guia antigo
 journalctl -k | grep "FIREWALL DROP"           # qualquer linha confirma que um firewall antigo rodou
 
 sudo systemctl disable --now <servico-concorrente>
-sudo bash firewall-rules.sh
+sudo bash scripts/firewall-rules.sh
 ```
 
 **2. Tabela de conntrack saturada.** Asterisk e Coturn rodam em `network_mode: host`; RTP (10000-20000) e o relay TURN (49152-65535) geram dezenas de milhares de fluxos UDP rastreados. Quando a tabela lota, a regra `ESTABLISHED,RELATED` — primeira da INPUT, sob policy `DROP` — deixa de casar e **toda** conexão nova cai, SSH inclusive. Reiniciar o Docker mata os containers, libera as entradas e mascara o problema.
@@ -376,26 +439,26 @@ cd /opt/easyphone-orquestrator
 docker compose down --remove-orphans
 docker network prune -f
 systemctl restart docker         # ⚠ derruba containers e chamadas em curso
-bash firewall-rules.sh           # recria a EASYPHONE_INPUT e o jump da INPUT
+bash scripts/firewall-rules.sh    # recria a EASYPHONE_INPUT e o jump da INPUT
 docker compose up -d
 ```
 
-**Se o problema voltar após um reboot**, confira se algum mecanismo de snapshot ficou ativo (instalações antigas): o `iptables-restore` do boot flusha a tabela antes de aplicar `/etc/iptables/rules.v4` e apaga as chains do Docker. O projeto **não usa mais snapshot** — o `easyphone-firewall.service` é o único mecanismo de persistência e o `init.sh` (etapa 4/6) desabilita o `netfilter-persistent`:
+**Se o problema voltar após um reboot**, confira se algum mecanismo de snapshot ficou ativo (instalações antigas): o `iptables-restore` do boot flusha a tabela antes de aplicar `/etc/iptables/rules.v4` e apaga as chains do Docker. O projeto **não usa mais snapshot** — o `easyphone-firewall.service` é o único mecanismo de persistência e o `init.sh` (etapa 4/7) desabilita o `netfilter-persistent`:
 
 ```bash
 systemctl is-enabled easyphone-firewall         # deve estar "enabled"
 systemctl disable netfilter-persistent          # legado; o init.sh já desabilita
 ```
 
-O `easyphone-firewall.service` roda depois do `docker.service` e reaplica o `firewall-rules.sh` a cada boot.
+O `easyphone-firewall.service` roda depois do `docker.service` e reaplica o `scripts/firewall-rules.sh` a cada boot.
 
 ### ⚠️ Nunca rode `iptables -F` neste host
 
-Nem `iptables -F INPUT`. A INPUT termina em DROP e carrega o jump para a `EASYPHONE_INPUT`: esvaziá-la derruba SIP, RTP e AMI na hora, porque Asterisk e Coturn rodam em `network_mode: host` e o tráfego deles chega pela INPUT. Scripts de whitelist que começam com `-F INPUT` quebram o PBX toda vez que rodam — regras extras devem ser **acrescentadas** (na `EASYPHONE_INPUT` para host networking, ou na `DOCKER-USER` para o tráfego dos containers). Para alterar o firewall, edite o `firewall-rules.sh` e rode-o de novo; ele é idempotente.
+Nem `iptables -F INPUT`. A INPUT termina em DROP e carrega o jump para a `EASYPHONE_INPUT`: esvaziá-la derruba SIP, RTP e AMI na hora, porque Asterisk e Coturn rodam em `network_mode: host` e o tráfego deles chega pela INPUT. Scripts de whitelist que começam com `-F INPUT` quebram o PBX toda vez que rodam — regras extras devem ser **acrescentadas** (na `EASYPHONE_INPUT` para host networking, ou na `DOCKER-USER` para o tráfego dos containers). Para alterar o firewall, edite o `scripts/firewall-rules.sh` e rode-o de novo; ele é idempotente.
 
 ### `docker compose pull` falha com "unauthorized"
 
-O token ghcr expirou ou não tem permissão. Reexecute o `sudo bash init.sh` e faça login novamente na etapa 2/6.
+O token ghcr expirou ou não tem permissão. Reexecute o `sudo bash init.sh` e faça login novamente na etapa 2/7.
 
 ### Portas não respondendo
 
@@ -408,7 +471,7 @@ sudo iptables -L EASYPHONE_INPUT -n --line-numbers
 Se a chain estiver vazia, reaplique:
 
 ```bash
-sudo bash firewall-rules.sh
+sudo bash scripts/firewall-rules.sh
 ```
 
 ### Container Asterisk não sobe
@@ -454,7 +517,7 @@ docker exec easyphone-asterisk asterisk -rx 'pjsip set logger on'
 docker logs -f easyphone-asterisk
 ```
 
-Se o passo 3 falhar com 502, quase sempre é o firewall: a porta 8089 precisa estar liberada na chain `EASYPHONE_INPUT` via interface de bridge. Reaplique com `sudo bash firewall-rules.sh`.
+Se o passo 3 falhar com 502, quase sempre é o firewall: a porta 8089 precisa estar liberada na chain `EASYPHONE_INPUT` via interface de bridge. Reaplique com `sudo bash scripts/firewall-rules.sh`.
 
 ### STUN não responde
 
@@ -495,7 +558,7 @@ sudo iptables -L EASYPHONE_INPUT -n -v --line-numbers | grep -E '3478|5349'
 | 4 mostra diretório | `init.sh` não foi reexecutado | `sudo bash init.sh && docker compose up -d` |
 | 5 falha | Config do Coturn | Ver o erro no passo 3 |
 | **5 OK, 6 falha** | **Rede** | Passo 7: regra presente com contador zerado ⇒ o bloqueio é do **provedor de nuvem**. Abrir 3478/UDP, 5349/TCP+UDP e 49152-65535/UDP no painel |
-| 7 sem a regra | Firewall não reaplicado | `sudo bash firewall-rules.sh` |
+| 7 sem a regra | Firewall não reaplicado | `sudo bash scripts/firewall-rules.sh` |
 
 O par 5/6 é o que decide entre Coturn e rede — se quiser encurtar, comece por ele.
 
