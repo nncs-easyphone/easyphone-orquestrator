@@ -77,7 +77,7 @@ O script interativamente:
 | **2/7** | Autentica no ghcr.io (valida o token com um pull real) |
 | **3/7** | Instala iptables |
 | **4/7** | Instala o `easyphone-firewall` (reaplica as regras de porta a cada boot, depois do Docker) e o `easyphone-whitelist-watch` (reaplica a whitelist quando containers sobem), desabilita firewalls concorrentes (`netfilter-persistent`, `ufw`) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
-| **5/7** | Instala Docker Compose, faz pull das imagens e pergunta se quer subir a stack |
+| **5/7** | Instala Docker Compose e, quando `USE_BUILD=false`, pergunta se quer fazer pull das imagens |
 | **6/7** | Pergunta se deseja instalar (ou reinstalar) o logo do EasyPhone no console (`/etc/issue`) e no MOTD do SSH (`/etc/update-motd.d/01-easyphone`) |
 
 > Em instalação nova, o instalador público chama o init com
@@ -127,7 +127,11 @@ Ao rodar o instalador em uma máquina já configurada, ele:
 - sobrescreve apenas os arquivos entregues no bundle (o instalador informa quantos arquivos existentes serão sobrescritos);
 - cria um backup em `.backup/<data>-<versão>/bundle-before-update.tar.gz` com permissão root-only, incluindo `.env` e configs que podem ser regeneradas;
 - se `.git` existir e houver alterações em arquivos versionados, lista os arquivos e pede confirmação (ou use `--force`);
-- roda `init.sh --refresh` no mesmo diretório, mantendo as units systemd válidas.
+- roda `init.sh --refresh` no mesmo diretório; firewall, watcher e logo só são reaplicados se já estavam instalados (`sudo bash init.sh --refresh --assume-yes` força a instalação dos ausentes).
+
+> Em clones antigos, `.backup/` e `.installed-image` podem aparecer como
+> arquivos não versionados. Eles são criados pela atualização e não fazem parte
+> do bundle.
 
 Depois da primeira atualização via bundle, o `.git` é preservado, mas o diretório deixa de ser um checkout git limpo. A partir daí, use `scripts/update.sh`; o `git pull` continua disponível apenas para quem permanecer no fluxo antigo sem usar o instalador.
 
@@ -228,7 +232,7 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | Arquivo | Descrição |
 |---|---|
 | `Dockerfile` / `.dockerignore` | Imagem privada usada apenas como transporte dos arquivos do orquestrador para `/opt/easyphone-orquestrator`; inclui `manifest.txt` com a lista de arquivos entregues |
-| `docker-compose.build.yml` | Override de desenvolvimento para recompilar as imagens a partir dos repositórios irmãos |
+| `docker-compose.build.yml` | Override de desenvolvimento para recompilar as imagens a partir dos repositórios irmãos; não é incluído no bundle |
 | `init.sh` | Wrapper na raiz que chama `scripts/init.sh` — mantém o comando `sudo bash init.sh` |
 | `update.sh` | Wrapper na raiz que chama `scripts/update.sh` |
 | `install-terminal-logo.sh` | Instala/reinstala o banner do console e o MOTD do SSH em máquinas que já rodaram o `init.sh` (`--console`, `--ssh` ou `--all`) |
@@ -376,8 +380,11 @@ sudo bash scripts/update.sh --rollback
 # Forçar reextração do bundle (ignora alterações locais do git)
 sudo bash scripts/update.sh --force
 
-# Subir a stack
-docker compose up -d
+# Subir a stack (respeita o USE_BUILD do .env)
+sudo bash scripts/run.sh
+
+# Build local (dev; requer docker-compose.build.yml e os repositórios irmãos)
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 # Parar a stack
 docker compose down

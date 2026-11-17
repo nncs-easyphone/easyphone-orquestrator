@@ -133,10 +133,18 @@ chmod 600 "$ENV_FILE" 2>/dev/null || true
 cd "$REPO_DIR"
 
 # Em instalações gerenciadas o override de build não é distribuído. Um .env
-# antigo com USE_BUILD=true não pode impedir a stack de subir.
-if [[ "$USE_BUILD" == "true" && ! -f docker-compose.build.yml ]]; then
-  warn "USE_BUILD=true, mas docker-compose.build.yml não existe — usando as imagens do registry."
-  USE_BUILD=false
+# antigo com USE_BUILD=true não pode impedir a stack de subir, e um clone
+# incompleto (sem os repositórios irmãos) também não pode falhar no build.
+if [[ "$USE_BUILD" == "true" ]]; then
+  build_missing=false
+  [[ -f docker-compose.build.yml ]] || build_missing=true
+  for build_context in ../easyphone-api ../easyphone-web ../easyphone-asterisk ../easyphone-backup; do
+    [[ -d "$build_context" ]] || build_missing=true
+  done
+  if $build_missing; then
+    warn "USE_BUILD=true, mas docker-compose.build.yml ou os repositórios irmãos não existem — usando as imagens do registry."
+    USE_BUILD=false
+  fi
 fi
 
 # USE_BUILD=true é exclusivo de desenvolvimento: acrescenta o override que

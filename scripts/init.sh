@@ -229,10 +229,12 @@ Uso: sudo bash init.sh [opções]
 
 Opções:
   --refresh               Modo atualização: mantém o .env, regenera arquivos
-                          derivados e reinstala os serviços systemd.
+                          derivados e reaplica somente firewall, watcher e logo
+                          que já estavam instalados.
   --skip-docker           Não instala/reinstala o Docker (já provisionado).
   --skip-registry-login   Não tenta autenticar no GHCR (o bootstrap já fez).
-  --assume-yes, -y        Responde "sim" às etapas idempotentes.
+  --assume-yes, -y        Responde "sim" às etapas idempotentes; no --refresh,
+                          força a instalação dos componentes ausentes.
   -h, --help              Mostra esta ajuda.
 EOF
 }
@@ -843,6 +845,20 @@ FIREWALL_SCRIPT="$REPO_DIR/scripts/firewall-rules.sh"
 FIREWALL_UNIT_TEMPLATE="$REPO_DIR/systemd/easyphone-firewall.service.example"
 FIREWALL_UNIT_PATH="/etc/systemd/system/easyphone-firewall.service"
 
+# No --refresh, preserva a escolha da instalação antiga: só reaplica o
+# firewall se ele já estava em uso (unit instalada ou chain existente).
+# --assume-yes força a instalação dos componentes ausentes.
+FIREWALL_ALREADY_INSTALLED=false
+if [[ -f "$FIREWALL_UNIT_PATH" ]] \
+  || { $IPTABLES_INSTALLED && iptables -S EASYPHONE_INPUT &>/dev/null; }; then
+  FIREWALL_ALREADY_INSTALLED=true
+fi
+
+SKIP_FIREWALL_REFRESH=false
+if $REFRESH && ! $ASSUME_YES && ! $FIREWALL_ALREADY_INSTALLED; then
+  SKIP_FIREWALL_REFRESH=true
+fi
+
 if [[ ! -f "$FIREWALL_SCRIPT" ]]; then
   warn "Arquivo 'scripts/firewall-rules.sh' não encontrado em scripts/."
   warn "Crie-o ou copie-o para '$FIREWALL_SCRIPT' antes de aplicar as regras."
@@ -859,6 +875,9 @@ else
     warn "Template 'systemd/easyphone-firewall.service.example' não encontrado; unit não instalado."
   elif ! command -v systemctl &>/dev/null; then
     warn "systemctl não disponível; unit de firewall não instalado."
+  elif $SKIP_FIREWALL_REFRESH; then
+    echo "  → Firewall do EasyPhone não estava instalado; mantendo como está."
+    echo "  → Para instalar: sudo bash init.sh --refresh --assume-yes"
   elif $REFRESH || $ASSUME_YES || ask_yes "Instalar o serviço que reaplica o firewall a cada boot (recomendado)?"; then
     box_start "Instalação do easyphone-firewall.service"
     sed "s|__FIREWALL_SCRIPT__|$FIREWALL_SCRIPT|g" \
@@ -872,28 +891,32 @@ else
     echo "  → Serviço não instalado; as regras não serão reaplicadas no boot."
   fi
 
-  # ── 4a'. Desabilita firewalls concorrentes ─────────────────────────
-  # netfilter-persistent restaura um snapshot da tabela inteira no boot; o
-  # iptables-restore flusha antes de aplicar e pode apagar as chains DOCKER-*.
-  # O projeto não usa snapshot: o easyphone-firewall.service é o único mecanismo
-  # das regras de porta; a whitelist também é reaplicada pelo watcher em novos containers.
-  if systemctl is-enabled netfilter-persistent &>/dev/null; then
-    warn "netfilter-persistent habilitado — pode apagar as chains do Docker no boot."
-    warn "Desabilitando (substituído pelo easyphone-firewall.service)."
-    systemctl disable netfilter-persistent 2>&1 | tee -a "$LOGFILE"
-    ok "netfilter-persistent desabilitado."
-  fi
+  if ! $SKIP_FIREWALL_REFRESH; then
+    # ── 4a'. Desabilita firewalls concorrentes ───────────────────────
+    # netfilter-persistent restaura um snapshot da tabela inteira no boot; o
+    # iptables-restore flusha antes de aplicar e pode apagar as chains DOCKER-*.
+    # O projeto não usa snapshot: o easyphone-firewall.service é o único mecanismo
+    # das regras de porta; a whitelist também é reaplicada pelo watcher em novos containers.
+    if systemctl is-enabled netfilter-persistent &>/dev/null; then
+      warn "netfilter-persistent habilitado — pode apagar as chains do Docker no boot."
+      warn "Desabilitando (substituído pelo easyphone-firewall.service)."
+      systemctl disable netfilter-persistent 2>&1 | tee -a "$LOGFILE"
+      ok "netfilter-persistent desabilitado."
+    fi
 
-  # ufw gerencia iptables por conta própria e conflita com as regras do projeto
-  # (INPUT DROP + EASYPHONE_INPUT). Desabilita se estiver ativo.
-  if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "^Status: active"; then
-    warn "ufw está ativo e conflita com as regras iptables do projeto. Desabilitando."
-    ufw --force disable 2>&1 | tee -a "$LOGFILE"
-    ok "ufw desabilitado."
+    # ufw gerencia iptables por conta própria e conflita com as regras do projeto
+    # (INPUT DROP + EASYPHONE_INPUT). Desabilita se estiver ativo.
+    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "^Status: active"; then
+      warn "ufw está ativo e conflita com as regras iptables do projeto. Desabilitando."
+      ufw --force disable 2>&1 | tee -a "$LOGFILE"
+      ok "ufw desabilitado."
+    fi
   fi
 
   # ── 4b. Aplica as regras agora ─────────────────────────────────────
-  if $REFRESH || $ASSUME_YES || ask_yes "Aplicar regras de firewall padrão agora?"; then
+  if $SKIP_FIREWALL_REFRESH; then
+    echo "  → Regras de firewall não aplicadas (firewall não instalado)."
+  elif $REFRESH || $ASSUME_YES || ask_yes "Aplicar regras de firewall padrão agora?"; then
     APPLY_FIREWALL=true
     # Salvaguarda: com porta de gestão ≠ 22 o firewall passa a liberar APENAS
     # ela. Se o sshd ainda escutar na 22, aplicar as regras derruba o acesso.
@@ -923,6 +946,13 @@ fi
 
 # ── 4c. Watcher que reaplica a whitelist quando containers sobem ─────
 WHITELIST_WATCH_INSTALLER="$REPO_DIR/scripts/install-whitelist-watch.sh"
+WHITELIST_WATCH_UNIT_PATH="/etc/systemd/system/easyphone-whitelist-watch.service"
+WHITELIST_WATCH_INSTALLED=false
+[[ -f "$WHITELIST_WATCH_UNIT_PATH" ]] && WHITELIST_WATCH_INSTALLED=true
+SKIP_WATCH_REFRESH=false
+if $REFRESH && ! $ASSUME_YES && ! $WHITELIST_WATCH_INSTALLED; then
+  SKIP_WATCH_REFRESH=true
+fi
 
 if ! $IPTABLES_INSTALLED; then
   warn "iptables não está instalado; watcher da whitelist não será instalado."
@@ -930,6 +960,9 @@ elif [[ ! -f "$WHITELIST_WATCH_INSTALLER" ]]; then
   warn "Instalador 'scripts/install-whitelist-watch.sh' não encontrado; watcher não instalado."
 elif ! command -v systemctl &>/dev/null; then
   warn "systemctl não disponível; watcher da whitelist não instalado."
+elif $SKIP_WATCH_REFRESH; then
+  echo "  → Watcher da whitelist não estava instalado; mantendo como está."
+  echo "  → Para instalar: sudo bash init.sh --refresh --assume-yes"
 elif $REFRESH || $ASSUME_YES || ask_yes "Instalar o serviço que reaplica a whitelist quando os containers sobem? (recomendado)"; then
   box_start "Instalação do easyphone-whitelist-watch.service"
   if bash "$WHITELIST_WATCH_INSTALLER" 2>&1 | tee -a "$LOGFILE"; then
@@ -1002,7 +1035,14 @@ else
   TERMINAL_LOGO_PROMPT="Instalar logo do EasyPhone no console e no MOTD do SSH?"
 fi
 
-if $REFRESH || $ASSUME_YES || ask_yes "$TERMINAL_LOGO_PROMPT"; then
+SKIP_LOGO_REFRESH=false
+if $REFRESH && ! $ASSUME_YES && ! $TERMINAL_LOGO_INSTALLED; then
+  SKIP_LOGO_REFRESH=true
+fi
+
+if $SKIP_LOGO_REFRESH; then
+  echo "  → Logo do terminal não estava instalado; mantendo como está."
+elif $REFRESH || $ASSUME_YES || ask_yes "$TERMINAL_LOGO_PROMPT"; then
   box_start "Instalação do logo no terminal"
   if bash "$REPO_DIR/scripts/banner-easyphone.sh" 2>&1 | tee -a "$LOGFILE"; then
     INSTALLED+=("banner-easyphone")
@@ -1048,7 +1088,7 @@ echo
 echo -e "  ${BOLD}Arquivo de log:${NC} $LOGFILE"
 echo
 echo -e "  ${BOLD}Comandos úteis:${NC}"
-echo -e "    ${BLUE}▶${NC} Subir a stack:         ${BOLD}docker compose up -d${NC}"
+echo -e "    ${BLUE}▶${NC} Subir a stack:         ${BOLD}sudo bash scripts/run.sh${NC}"
 echo -e "    ${BLUE}▶${NC} Parar a stack:          ${BOLD}docker compose down${NC}"
 echo -e "    ${BLUE}▶${NC} Ver logs:               ${BOLD}docker compose logs -f${NC}"
 echo -e "    ${BLUE}▶${NC} Reaplicar firewall:     ${BOLD}sudo bash scripts/firewall-rules.sh${NC}"
