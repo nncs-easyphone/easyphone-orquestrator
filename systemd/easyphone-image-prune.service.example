@@ -1,0 +1,21 @@
+; Template da limpeza diária de imagens Docker do EasyPhone.
+; O installer gera /etc/systemd/system/easyphone-image-prune.service a partir
+; deste arquivo, substituindo __IMAGE_PRUNE_SCRIPT__ pelo caminho absoluto
+; real de scripts/docker-image-prune.sh.
+;
+; O agendamento fica no easyphone-image-prune.timer.
+
+[Unit]
+Description=EasyPhone — remove imagens Docker não usadas antigas
+Documentation=file://__IMAGE_PRUNE_SCRIPT__
+After=docker.service network-online.target
+Wants=docker.service
+ConditionPathExists=__IMAGE_PRUNE_SCRIPT__
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash __IMAGE_PRUNE_SCRIPT__
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+SyslogIdentifier=easyphone-image-prune
