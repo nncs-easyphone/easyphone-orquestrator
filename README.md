@@ -76,7 +76,7 @@ O script interativamente:
 | **1/7** | Instala Docker via `get.docker.com` e configura para iniciar no boot |
 | **2/7** | Autentica no ghcr.io (valida o token com um pull real) |
 | **3/7** | Instala iptables |
-| **4/7** | Instala o `easyphone-firewall` (reaplica as regras de porta a cada boot, depois do Docker) e o `easyphone-whitelist-watch` (reaplica a whitelist quando containers sobem), desabilita firewalls concorrentes (`netfilter-persistent`, `ufw`) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
+| **4/7** | Instala o `easyphone-firewall` (reaplica as regras de porta a cada boot, depois do Docker), o `easyphone-whitelist-watch` (reaplica a whitelist quando containers sobem) e o `easyphone-image-prune.timer` (limpeza diária de imagens Docker não usadas), desabilita firewalls concorrentes (`netfilter-persistent`, `ufw`) e aplica as regras (chain dedicada `EASYPHONE_INPUT`) |
 | **5/7** | Instala Docker Compose e, quando `USE_BUILD=false`, pergunta se quer fazer pull das imagens |
 | **6/7** | Pergunta se deseja instalar (ou reinstalar) o logo do EasyPhone no console (`/etc/issue`) e no MOTD do SSH (`/etc/update-motd.d/01-easyphone`) |
 
@@ -237,19 +237,24 @@ No EasyVoice, em Configurações: servidor `pbx.${DOMAIN}`, porta `443`, protoco
 | `update.sh` | Wrapper na raiz que chama `scripts/update.sh` |
 | `install-terminal-logo.sh` | Instala/reinstala o banner do console e o MOTD do SSH em máquinas que já rodaram o `init.sh` (`--console`, `--ssh` ou `--all`) |
 | `install-whitelist-watch.sh` | Instala/reinstala o watcher da whitelist em máquinas que já rodaram o `init.sh` (`--remove` desativa o serviço) |
-| `scripts/init.sh` | Implementação do provisionamento (Docker, ghcr, iptables, firewall, watcher da whitelist, compose e logo do terminal). Aceita `--refresh`, `--skip-docker` e `--skip-registry-login` |
+| `install-image-prune.sh` | Instala/reinstala o timer da limpeza diária de imagens Docker em máquinas que já rodaram o `init.sh` (`--remove` desativa o serviço) |
+| `scripts/init.sh` | Implementação do provisionamento (Docker, ghcr, iptables, firewall, watcher da whitelist, limpeza de imagens, compose e logo do terminal). Aceita `--refresh`, `--skip-docker` e `--skip-registry-login` |
 | `scripts/run.sh` | Script para subir a stack e reaplicar a whitelist ao final, quando configurada |
 | `scripts/update.sh` | Atualiza a máquina já instalada a partir da imagem `:main`, preservando `.env` e dados; aceita `--check`, `--rollback` e `--force` |
 | `scripts/firewall-rules.sh` | Regras de firewall com chain dedicada `EASYPHONE_INPUT` |
 | `scripts/whitelist-rules.sh` | Whitelist opcional de origens (chain `EASYPHONE_WHITELIST`), encadeada pelo `scripts/firewall-rules.sh`; aceita loopback e `ESTABLISHED,RELATED` para não derrubar respostas de conexões de saída |
 | `scripts/whitelist-watch.sh` | Watcher systemd: escuta `docker events` (`start`/`restart`) dos containers `easyphone-*` e reaplica a whitelist com debounce e lock |
 | `scripts/install-whitelist-watch.sh` | Implementação do instalador do `easyphone-whitelist-watch.service` |
+| `scripts/docker-image-prune.sh` | Remove imagens Docker não usadas mais antigas que `DOCKER_IMAGE_PRUNE_RETENTION` (padrão: 24h); executado pelo `easyphone-image-prune.timer` ou manualmente |
+| `scripts/install-image-prune.sh` | Implementação do instalador do `easyphone-image-prune.service` e do `easyphone-image-prune.timer` |
 | `scripts/diagnose-firewall.sh` | Diagnóstico somente leitura de firewall, Docker e rede |
 | `scripts/banner-easyphone.sh` | Instala o logo do EasyPhone no `/etc/issue` (login do console) |
 | `scripts/motd-easyphone.sh` | Instala o logo e o resumo do host no `/etc/update-motd.d/01-easyphone` (login via SSH) |
 | `init.sh`, `run.sh`, `update.sh`, `firewall-rules.sh`, `whitelist-rules.sh`, `diagnose-firewall.sh`, `banner-easyphone.sh`, `motd-easyphone.sh` | Wrappers na raiz que chamam a implementação correspondente em `scripts/` (mantêm os comandos antigos) |
 | `systemd/easyphone-firewall.service.example` | Template do serviço que reaplica o firewall a cada boot, depois do `docker.service` — o unit final é gerado pelo `init.sh` |
 | `systemd/easyphone-whitelist-watch.service.example` | Template do watcher que reaplica a whitelist em novos containers — o unit final é gerado pelo instalador |
+| `systemd/easyphone-image-prune.service.example` | Template do serviço oneshot que executa a limpeza de imagens — o unit final é gerado pelo instalador |
+| `systemd/easyphone-image-prune.timer.example` | Template do timer diário (03:30, com atraso aleatório) que dispara a limpeza de imagens |
 | `whitelist.conf.example` | Template da lista de origens permitidas — copie para `whitelist.conf` para ativar |
 | `.env` | Configuração de ambiente (copie de `.env.example`) |
 | `.env.example` | Template do ambiente |
@@ -363,6 +368,58 @@ docker exec easyphone-host-info cat /host-info/system-report.json
 
 O contrato completo está em `doc/monitoramento.md`.
 
+## Limpeza automática de imagens Docker
+
+O `easyphone-image-prune.timer` executa uma vez ao dia (às `03:30`, com atraso
+aleatório de até 30 minutos) o script `scripts/docker-image-prune.sh`. O timer
+usa `Persistent=true`: se o host estiver desligado no horário, a execução
+perdida é recuperada no próximo boot.
+
+A limpeza remove apenas **imagens não usadas** criadas há mais de
+`DOCKER_IMAGE_PRUNE_RETENTION` (padrão: `24h`):
+
+```bash
+docker image prune --all --force --filter "until=24h"
+```
+
+Ela não remove containers, volumes, redes nem cache de build. Como usa
+`--all`, também remove imagens com tag que não estejam referenciadas por
+nenhum container — inclusive a imagem bundle do orquestrador e imagens de
+build local se a stack ficar parada além do período de retenção. A próxima
+atualização ou `docker compose up` baixa/reconstrói o que for necessário.
+
+Configuração no `.env` (lida a cada execução, sem reinstalar o timer):
+
+```bash
+DOCKER_IMAGE_PRUNE_ENABLED=true
+DOCKER_IMAGE_PRUNE_RETENTION=24h
+```
+
+Comandos úteis:
+
+```bash
+# Executar a limpeza agora
+sudo bash scripts/docker-image-prune.sh
+
+# Ver o próximo agendamento
+systemctl list-timers easyphone-image-prune.timer
+
+# Acompanhar a última execução
+journalctl -u easyphone-image-prune.service -f
+
+# Instalar/reinstalar em uma máquina existente
+sudo bash install-image-prune.sh
+
+# Desativar e remover o timer (o script manual permanece)
+sudo bash install-image-prune.sh --remove
+
+# Desativar mantendo o timer instalado: DOCKER_IMAGE_PRUNE_ENABLED=false no .env
+```
+
+O `init.sh` instala o timer na etapa **4/7** (pergunta com padrão sim). O
+`scripts/update.sh` chama `init.sh --refresh`, que instala/reinstala o timer
+automaticamente em instalações que ainda não o tinham.
+
 ## Comandos úteis
 
 Execute a partir de `/opt/easyphone-orquestrator`.
@@ -407,6 +464,16 @@ sudo bash install-whitelist-watch.sh
 # Status e logs do watcher
 systemctl status easyphone-whitelist-watch
 journalctl -u easyphone-whitelist-watch -f
+
+# Executar a limpeza de imagens Docker agora
+sudo bash scripts/docker-image-prune.sh
+
+# Status e logs da limpeza automática de imagens
+systemctl list-timers easyphone-image-prune.timer
+journalctl -u easyphone-image-prune.service -f
+
+# Reinstalar o timer da limpeza de imagens
+sudo bash install-image-prune.sh
 
 # Reinstalar logo do EasyPhone no console e no SSH
 sudo bash install-terminal-logo.sh

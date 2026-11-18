@@ -977,6 +977,33 @@ else
   echo "  → Para instalar depois: sudo bash install-whitelist-watch.sh"
 fi
 
+# ── 4d. Limpeza diária de imagens Docker antigas ────────────────────
+# O timer roda no host (não altera o docker-proxy nem o compose) e remove
+# somente imagens não usadas criadas há mais de DOCKER_IMAGE_PRUNE_RETENTION.
+# No --refresh a instalação é automática para que o update.sh habilite o
+# serviço em máquinas que ainda não o tinham.
+IMAGE_PRUNE_INSTALLER="$REPO_DIR/scripts/install-image-prune.sh"
+
+if ! command -v docker &>/dev/null; then
+  warn "Docker não está disponível; limpeza automática de imagens não instalada."
+elif [[ ! -f "$IMAGE_PRUNE_INSTALLER" ]]; then
+  warn "Instalador 'scripts/install-image-prune.sh' não encontrado; limpeza automática não instalada."
+elif ! command -v systemctl &>/dev/null; then
+  warn "systemctl não disponível; limpeza automática de imagens não instalada."
+elif $REFRESH || $ASSUME_YES || ask_yes "Instalar a limpeza diária de imagens Docker antigas? (recomendado)"; then
+  box_start "Instalação do easyphone-image-prune.timer"
+  if bash "$IMAGE_PRUNE_INSTALLER" 2>&1 | tee -a "$LOGFILE"; then
+    ok "easyphone-image-prune.timer instalado e habilitado."
+    INSTALLED+=("easyphone-image-prune.timer")
+  else
+    error "Falha ao instalar a limpeza automática de imagens Docker."
+  fi
+  box_end
+else
+  echo "  → Limpeza automática não instalada."
+  echo "  → Para instalar depois: sudo bash install-image-prune.sh"
+fi
+
 divider
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1096,6 +1123,9 @@ echo -e "    ${BLUE}▶${NC} Reinstalar logo:        ${BOLD}sudo bash install-te
 echo -e "    ${BLUE}▶${NC} Reinstalar watcher:     ${BOLD}sudo bash install-whitelist-watch.sh${NC}"
 echo -e "    ${BLUE}▶${NC} Status do watcher:      ${BOLD}systemctl status easyphone-whitelist-watch${NC}"
 echo -e "    ${BLUE}▶${NC} Logs do watcher:        ${BOLD}journalctl -u easyphone-whitelist-watch -f${NC}"
+echo -e "    ${BLUE}▶${NC} Limpeza de imagens:     ${BOLD}systemctl list-timers easyphone-image-prune.timer${NC}"
+echo -e "    ${BLUE}▶${NC} Logs da limpeza:        ${BOLD}journalctl -u easyphone-image-prune.service -f${NC}"
+echo -e "    ${BLUE}▶${NC} Limpar imagens agora:   ${BOLD}sudo bash scripts/docker-image-prune.sh${NC}"
 echo -e "    ${BLUE}▶${NC} Conferir porta SSH:     ${BOLD}sudo iptables -S EASYPHONE_INPUT | grep \"dport ${SSH_PORT:-22} \"${NC}"
 echo
 echo -e "${BOLD}${BLUE}═══════════════════  LOG COMPLETO  ═══════════════════${NC}"

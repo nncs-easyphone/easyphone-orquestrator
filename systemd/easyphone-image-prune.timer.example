@@ -1,0 +1,21 @@
+; Template do timer da limpeza diária de imagens Docker do EasyPhone.
+; O installer gera /etc/systemd/system/easyphone-image-prune.timer a partir
+; deste arquivo, substituindo __IMAGE_PRUNE_SCRIPT__ pelo caminho absoluto
+; real de scripts/docker-image-prune.sh.
+;
+; Persistent=true recupera a execução perdida se o host estiver desligado no
+; horário agendado. RandomizedDelaySec espalha a carga em instalações grandes.
+
+[Unit]
+Description=EasyPhone — limpeza diária de imagens Docker antigas
+Documentation=file://__IMAGE_PRUNE_SCRIPT__
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=30m
+AccuracySec=1m
+Unit=easyphone-image-prune.service
+
+[Install]
+WantedBy=timers.target
