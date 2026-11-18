@@ -222,7 +222,7 @@ Firebase
 Route 53
 ```
 
-A autenticação é feita pela API key na própria URL (`?apiKey=...`). O `init.sh`/`run.sh` gera `DNS_CHALLENGE_API_KEY` automaticamente e o compose a injeta tanto no `api` quanto no `HTTPREQ_ENDPOINT` do Traefik — não é necessário configurar a chave em dois lugares.
+A autenticação é feita pela API key na própria URL (`?apiKey=...`). O `init.sh`/`scripts/run.sh` gera `DNS_CHALLENGE_API_KEY` automaticamente e o compose a injeta tanto no `api` quanto no `HTTPREQ_ENDPOINT` do Traefik — não é necessário configurar a chave em dois lugares.
 
 O servidor on-premise **não deverá possuir credenciais AWS**.
 

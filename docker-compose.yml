@@ -114,9 +114,6 @@ services:
 
   migrations:
     image: ghcr.io/nncs-easyphone/easyphone-api:main
-    build:
-      context: ../easyphone-api
-      dockerfile: Dockerfile
     container_name: easyphone-migrations
     command: sh -c "npx prisma migrate deploy"
     environment:
@@ -174,9 +171,6 @@ services:
 
   asterisk:
     image: ghcr.io/nncs-easyphone/easyphone-asterisk:main
-    build:
-      context: ../easyphone-asterisk
-      dockerfile: Dockerfile
     container_name: easyphone-asterisk
     restart: unless-stopped
     logging: *default-logging
@@ -198,7 +192,7 @@ services:
       # onde api/seed chegam). Só preencha se o Docker usar outro `bip` ou se
       # a API alcançar o ARI de fora do host (0.0.0.0).
       ASTERISK_HTTP_BIND_ADDR: ${ASTERISK_HTTP_BIND_ADDR:-}
-      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou run.sh para gerar}
+      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou scripts/run.sh para gerar}
     healthcheck:
       test: ["CMD-SHELL", "asterisk -rx \"core waitfullybooted\" | grep -q \"fully booted\" || exit 1"]
       interval: 10s
@@ -220,9 +214,6 @@ services:
 
   seed:
     image: ghcr.io/nncs-easyphone/easyphone-api:main
-    build:
-      context: ../easyphone-api
-      dockerfile: Dockerfile
     container_name: easyphone-seed
     command: sh -c "npx prisma db seed"
     environment:
@@ -239,7 +230,7 @@ services:
       ASTERISK_ARI_PORT: "8088"
       ASTERISK_AMI_PORT: "5038"
       ASTERISK_AMI_USER: easyphone
-      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou run.sh para gerar}
+      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou scripts/run.sh para gerar}
       ASTERISK_ARI_APP: easyphone
       PRISMA_LOGS_OFF: "true"
       DATA_SECRET_CRYPTOGRAPHY_KEY: ${DATA_SECRET_CRYPTOGRAPHY_KEY}
@@ -340,9 +331,6 @@ services:
 
   api:
     image: ghcr.io/nncs-easyphone/easyphone-api:main
-    build:
-      context: ../easyphone-api
-      dockerfile: Dockerfile
     container_name: easyphone-api
     restart: unless-stopped
     stop_grace_period: 15s
@@ -370,7 +358,7 @@ services:
       ASTERISK_ARI_PORT: "8088"
       ASTERISK_AMI_PORT: "5038"
       ASTERISK_AMI_USER: easyphone
-      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou run.sh para gerar}
+      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou scripts/run.sh para gerar}
       ASTERISK_ARI_APP: easyphone
       PRISMA_LOGS_OFF: "true"
       DATA_SECRET_CRYPTOGRAPHY_KEY: ${DATA_SECRET_CRYPTOGRAPHY_KEY}
@@ -425,9 +413,6 @@ services:
 
   web:
     image: ghcr.io/nncs-easyphone/easyphone-web:main
-    build:
-      context: ../easyphone-web
-      dockerfile: Dockerfile
     container_name: easyphone-web
     restart: unless-stopped
     logging: *default-logging
@@ -463,9 +448,6 @@ services:
 
   backup:
     image: ghcr.io/nncs-easyphone/easyphone-backup:main
-    build:
-      context: ../easyphone-backup
-      dockerfile: Dockerfile
     container_name: easyphone-backup
     restart: unless-stopped
     logging: *default-logging
@@ -508,7 +490,7 @@ services:
       # Estado/logs em pasta física do host. `:Z` rotula para SELinux (hosts
       # Fedora) e é ignorado em hosts sem SELinux. O dono (1001:1001) é
       # garantido automaticamente pelo entrypoint da imagem no start (inclusive
-      # subpastas de volumes reaproveitados); o chown do init.sh/run.sh
+      # subpastas de volumes reaproveitados); o chown do init.sh/scripts/run.sh
       # permanece apenas como reforço.
       - ./states:/app/states:Z
 

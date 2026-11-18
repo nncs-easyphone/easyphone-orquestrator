@@ -1,7 +1,7 @@
 ; Template do unit de firewall do EasyPhone.
 ; O init.sh gera /etc/systemd/system/easyphone-firewall.service a partir deste
 ; arquivo, substituindo __FIREWALL_SCRIPT__ pelo caminho absoluto real do
-; firewall-rules.sh.
+; scripts/firewall-rules.sh.
 
 [Unit]
 Description=EasyPhone — regras de firewall (chain EASYPHONE_INPUT)

@@ -1,0 +1,59 @@
+name: Orchestrator Bundle CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validar sintaxe dos scripts
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            bash -n "$file"
+          done < <(find . -name '*.sh' -not -path './.git/*' -print0)
+
+  build:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build e push da imagem bundle
+        run: |
+          set -euo pipefail
+          image="${REGISTRY}/$(printf '%s' "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          docker build --file Dockerfile --tag "${image}:${GITHUB_REF_NAME}" .
+          docker push "${image}:${GITHUB_REF_NAME}"
+          docker tag "${image}:${GITHUB_REF_NAME}" "${image}:sha-${GITHUB_SHA}"
+          docker push "${image}:sha-${GITHUB_SHA}"

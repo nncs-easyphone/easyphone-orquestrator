@@ -1,0 +1,25 @@
+; Template do watcher da whitelist do EasyPhone.
+; O installer gera /etc/systemd/system/easyphone-whitelist-watch.service a
+; partir deste arquivo, substituindo __WHITELIST_WATCH_SCRIPT__ pelo caminho
+; absoluto real de scripts/whitelist-watch.sh.
+
+[Unit]
+Description=EasyPhone — reaplica a whitelist quando containers sobem
+Documentation=file://__WHITELIST_WATCH_SCRIPT__
+# O watcher precisa do Docker ativo para escutar os eventos e do firewall
+# aplicado para que a EASYPHONE_INPUT já exista. Wants (não Requires) no
+# firewall: se o unit não estiver instalado, o watcher ainda inicia.
+After=docker.service easyphone-firewall.service network-online.target
+Wants=docker.service network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/bin/bash __WHITELIST_WATCH_SCRIPT__
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+SyslogIdentifier=easyphone-whitelist-watch
+
+[Install]
+WantedBy=multi-user.target

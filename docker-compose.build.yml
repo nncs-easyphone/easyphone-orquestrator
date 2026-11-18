@@ -1,0 +1,37 @@
+# Somente para desenvolvimento local: recompila as imagens a partir dos
+# repositórios irmãos. A distribuição on-premise usa apenas docker-compose.yml
+# com as imagens publicadas no GHCR.
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+services:
+  migrations:
+    build:
+      context: ../easyphone-api
+      dockerfile: Dockerfile
+
+  asterisk:
+    build:
+      context: ../easyphone-asterisk
+      dockerfile: Dockerfile
+
+  seed:
+    build:
+      context: ../easyphone-api
+      dockerfile: Dockerfile
+
+  api:
+    build:
+      context: ../easyphone-api
+      dockerfile: Dockerfile
+
+  web:
+    build:
+      context: ../easyphone-web
+      dockerfile: Dockerfile
+
+  backup:
+    build:
+      context: ../easyphone-backup
+      dockerfile: Dockerfile

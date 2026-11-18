@@ -1,8 +1,12 @@
 .env
 .env.bak.*
 env-*.bkp
+.installed-image
+.backup/
 traefik/conf/wss.yml
 coturn/turnserver.conf
 whitelist.conf
 logs/
 states/
+safety/
+data/
