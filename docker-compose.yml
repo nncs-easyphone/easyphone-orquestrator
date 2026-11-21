@@ -194,11 +194,16 @@ services:
       ASTERISK_HTTP_BIND_ADDR: ${ASTERISK_HTTP_BIND_ADDR:-}
       ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:?execute init.sh ou scripts/run.sh para gerar}
     healthcheck:
-      test: ["CMD-SHELL", "asterisk -rx \"core waitfullybooted\" | grep -q \"fully booted\" || exit 1"]
+      # Além de "subiu", confere que CDR e CEL estão gravando: se o Asterisk
+      # carregar antes do Postgres, os dois backends ficam desativados calados
+      # (ligações funcionam, relatórios param). O vigia do entrypoint recarrega
+      # em até 60s; persistindo, o contêiner fica unhealthy.
+      test: ["CMD-SHELL", "asterisk -rx \"core waitfullybooted\" | grep -q \"fully booted\" && asterisk -rx \"cdr show status\" | grep -q \"Adaptive ODBC\" && asterisk -rx \"cel show status\" | grep -q \"ODBC CEL backend\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 15s
+      # Inclui a espera pelo Postgres no entrypoint
+      start_period: 60s
     volumes:
       - asterisk_config:/etc/asterisk
       - asterisk_lib:/var/lib/asterisk
