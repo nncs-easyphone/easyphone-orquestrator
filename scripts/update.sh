@@ -155,36 +155,63 @@ info "Log: $LOG_FILE"
 login_registry() {
   local user token
 
-  if docker login "$REGISTRY" </dev/null &>/dev/null; then
-    return 0
-  fi
-
   if [[ -n "${GHCR_USER:-}" && -n "${GHCR_TOKEN:-}" ]]; then
     user="$GHCR_USER"
     token="$GHCR_TOKEN"
   elif $HAS_TTY; then
     read -r -u 3 -p "$(echo -e "${YELLOW}?${NC} Usuário do GitHub: ")" user \
-      || die "Leitura cancelada."
+      || return 1
     read -rs -u 3 -p "$(echo -e "${YELLOW}?${NC} PAT com read:packages: ")" token \
-      || die "Leitura cancelada."
+      || return 1
     echo
   else
-    die "Credenciais ausentes. Defina GHCR_USER e GHCR_TOKEN (ou rode em um terminal interativo)."
+    error "Credenciais ausentes. Defina GHCR_USER e GHCR_TOKEN (ou rode em um terminal interativo)."
+    return 1
   fi
 
-  printf '%s' "$token" | docker login "$REGISTRY" -u "$user" --password-stdin \
-    || die "Falha no login no $REGISTRY. Verifique o PAT e o SSO."
+  if ! printf '%s' "$token" | docker login "$REGISTRY" -u "$user" --password-stdin; then
+    unset token
+    error "Falha no login no $REGISTRY. Verifique o PAT e o SSO."
+    return 1
+  fi
   unset token
+
+  if ! docker manifest inspect "$BUNDLE_IMAGE" >/dev/null 2>&1; then
+    warn "Login efetuado, mas não foi possível validar o acesso a $BUNDLE_IMAGE."
+    warn "Confira o escopo read:packages e o SSO da organização."
+  fi
 }
 
 pull_bundle() {
-  if ! docker pull "$BUNDLE_IMAGE"; then
-    warn "O pull falhou. A credencial armazenada pode ter expirado."
-    docker logout "$REGISTRY" >/dev/null 2>&1 || true
-    login_registry
-    docker pull "$BUNDLE_IMAGE" \
-      || die "Não foi possível baixar $BUNDLE_IMAGE. Verifique o PAT (read:packages) e o acesso à organização."
+  local pull_log context
+
+  pull_log="$(mktemp)"
+  info "Baixando ${BUNDLE_IMAGE}…"
+
+  if docker pull "$BUNDLE_IMAGE" 2>&1 | tee "$pull_log"; then
+    rm -f "$pull_log"
+    return 0
   fi
+
+  if ! grep -qiE 'unauthorized|authentication required|failed to authorize|no basic auth credentials|pull access denied|insufficient_scope|permission_denied|does not match expected scopes|denied: requested access|denied: denied' "$pull_log"; then
+    rm -f "$pull_log"
+    warn "O pull falhou antes de qualquer tentativa de renovar credenciais."
+    warn "Imagem: $BUNDLE_IMAGE"
+    info "DOCKER_CONFIG=${DOCKER_CONFIG:-<padrão>} HOME=${HOME:-<vazio>}"
+    info "DOCKER_HOST=${DOCKER_HOST:-<padrão>}"
+    context="$(docker context show 2>/dev/null || true)"
+    [[ -n "$context" ]] && info "Contexto Docker: $context"
+    warn "Teste manualmente: sudo docker pull $BUNDLE_IMAGE"
+    die "Não foi possível baixar $BUNDLE_IMAGE (erro não relacionado a credenciais)."
+  fi
+
+  rm -f "$pull_log"
+  warn "O pull falhou por autenticação no $REGISTRY. Renovando o login…"
+  docker logout "$REGISTRY" >/dev/null 2>&1 || true
+  login_registry || die "Não foi possível renovar o login no $REGISTRY."
+
+  docker pull "$BUNDLE_IMAGE" \
+    || die "Não foi possível baixar $BUNDLE_IMAGE após renovar o login. Verifique o PAT (read:packages) e o acesso à organização."
 }
 
 image_digest() {
@@ -302,7 +329,6 @@ if $ROLLBACK; then
   exit 0
 fi
 
-login_registry
 pull_bundle
 
 NEW_DIGEST="$(image_digest)"
