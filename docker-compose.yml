@@ -468,7 +468,6 @@ services:
       ASTERISK_MONITOR_PATH: /var/spool/asterisk/monitor
       ASTERISK_PATH_MOH: /var/lib/asterisk/moh
       ASTERISK_PATH_URA: /var/lib/asterisk/sounds/ura
-      ASTERISK_PATH_SOUNDS_EASYPHONE: /var/lib/asterisk/sounds/easyphone
       BACKUP_OUTPUT_PATH: /app/backup
       # Snapshot de segurança do restore (foto do estado atual antes do replace)
       BACKUP_SAFETY_PATH: /app/safety
@@ -487,7 +486,7 @@ services:
       # RW: o backup agendado só lê; o restore (manual) precisa escrever e
       # excluir nestas árvores para espelhar a nuvem.
       - asterisk_monitor:/var/spool/asterisk/monitor
-      # Assets de áudio (moh, sounds/ura, sounds/easyphone)
+      # Assets de áudio (moh, sounds/ura)
       - asterisk_lib:/var/lib/asterisk
       - backup_data:/app/backup
       # Snapshot de segurança do restore, em pasta física do host.
